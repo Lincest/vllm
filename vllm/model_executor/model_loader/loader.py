@@ -378,9 +378,21 @@ class DefaultModelLoader(BaseModelLoader):
         model_config = vllm_config.model_config
 
         target_device = torch.device(device_config.device)
+
+        logger.info(f"ℹ️ load model, device = {target_device}")
         with set_default_torch_dtype(model_config.dtype):
+            if torch.cuda.is_available():
+                memory_allocated = torch.cuda.memory_allocated() / 1024**2
+                memory_reserved = torch.cuda.memory_reserved() / 1024**2
+                logger.info(f"🎯 [debug] 模型加载前，GPU内存使用: 已分配={memory_allocated:.2f}MB, 已预留={memory_reserved:.2f}MB")
+
             with target_device:
-                model = _initialize_model(vllm_config=vllm_config)
+                model = _initialize_model(vllm_config=vllm_config) # 这里把模型完整的放在 GPU 上了
+
+            if torch.cuda.is_available():
+                memory_allocated = torch.cuda.memory_allocated() / 1024**2
+                memory_reserved = torch.cuda.memory_reserved() / 1024**2
+                logger.info(f"🎯 [debug] _initialize 加载后，GPU内存使用: 已分配={memory_allocated:.2f}MB, 已预留={memory_reserved:.2f}MB")
 
             weights_to_load = {name for name, _ in model.named_parameters()}
             loaded_weights = model.load_weights(
@@ -411,6 +423,10 @@ class DefaultModelLoader(BaseModelLoader):
                     # TODO(lucas): see if there is a way to unify the signatures
                     # of process_weights_after_loading
                     module.process_weights_after_loading(model_config.dtype)
+            if torch.cuda.is_available():
+                memory_allocated = torch.cuda.memory_allocated() / 1024**2
+                memory_reserved = torch.cuda.memory_reserved() / 1024**2
+                logger.info(f"🎯 [debug] 模型参数加载后，GPU内存使用: 已分配={memory_allocated:.2f}MB, 已预留={memory_reserved:.2f}MB")
         return model.eval()
 
 

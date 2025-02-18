@@ -499,6 +499,10 @@ def maybe_offload_to_cpu(module: torch.nn.Module) -> torch.nn.Module:
     # offload parameters to CPU
     # use pin_memory if possible, which helps cudagraph capture speed
     offloaded_parameters = False
+
+    # debug module mame -> CPU
+    logger.info(f"🎯 offload module {module._get_name()} -> CPU")
+
     for p in module.parameters():
         if _CPU_OFFLOAD_BYTES >= _CPU_OFFLOAD_MAX_BYTES:
             # we use per-parameter offloading
