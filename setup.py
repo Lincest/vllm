@@ -289,6 +289,10 @@ class repackage_wheel(build_ext):
 
             print(f"Downloading wheel from {wheel_location} to {wheel_path}")
 
+            import ssl
+            original_context = ssl._create_default_https_context
+            ssl._create_default_https_context = ssl._create_unverified_context
+
             from urllib.request import urlretrieve
 
             try:

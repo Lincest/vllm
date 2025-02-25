@@ -96,6 +96,7 @@ class MixtralMoE(nn.Module):
                                 prefix=f"{prefix}.experts")
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        print(f"[debug] 🎯 MixtralMoE is forwarding...")
         # NOTE: hidden_states can have either 1D or 2D shape.
         orig_shape = hidden_states.shape
         hidden_states = hidden_states.view(-1, self.hidden_size)
@@ -410,6 +411,8 @@ class MixtralForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
 
     def load_weights(self, weights: Iterable[Tuple[str,
                                                    torch.Tensor]]) -> Set[str]:
+        
+        print(f"🎯 mixtral.py -> load_weights...")
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
             ("qkv_proj", "q_proj", "q"),
