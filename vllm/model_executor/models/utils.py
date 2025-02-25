@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from typing import (Callable, Dict, Iterable, List, Literal, Mapping, Optional,
                     Protocol, Set, Tuple, Union, overload)
 
+import psutil
+import os
 import torch
 import torch.nn as nn
 from torch.func import functional_call
