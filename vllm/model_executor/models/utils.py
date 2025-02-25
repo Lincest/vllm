@@ -502,9 +502,8 @@ def maybe_offload_to_cpu(module: torch.nn.Module) -> torch.nn.Module:
 
     # debug module mame -> CPU
     logger.info(f"🎯 offload module {module._get_name()} -> CPU")
-    for i, p in enumerate(module.parameters()):
-        logger.info(f"🎯 参数[{i}]: 设备={p.data.device}, 大小={p.data.size()}, 内存={p.data.numel() * p.data.element_size()} 字节")
-
+    for name, p in module.named_parameters():
+        logger.info(f"🎯 参数[{name}]: 设备={p.data.device}, 大小={p.data.size()}, 内存={p.data.numel() * p.data.element_size()} 字节")
 
     for p in module.parameters():
         if _CPU_OFFLOAD_BYTES >= _CPU_OFFLOAD_MAX_BYTES:
@@ -523,6 +522,10 @@ def maybe_offload_to_cpu(module: torch.nn.Module) -> torch.nn.Module:
         p.data = cpu_data
         _CPU_OFFLOAD_BYTES += p.data.numel() * p.data.element_size()
         offloaded_parameters = True
+        # FIXME: add debug
+
+    logger.info(f"🎯 [debug] torch.cuda.empty_cache()")
+    torch.cuda.empty_cache()
 
     if offloaded_parameters:
         original_forward = module.forward
