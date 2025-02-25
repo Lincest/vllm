@@ -478,6 +478,8 @@ class PPMissingLayer(torch.nn.Identity):
 
 _CPU_OFFLOAD_BYTES = 0
 _CPU_OFFLOAD_MAX_BYTES = 0
+# FIXME: 目前开启是否卸载专家的开关
+EXPERT_OFFLOAD = True
 
 
 def set_cpu_offload_max_bytes(max_bytes: int) -> None:
@@ -493,7 +495,7 @@ def maybe_offload_to_cpu(module: torch.nn.Module) -> torch.nn.Module:
         return module
 
     global _CPU_OFFLOAD_MAX_BYTES, _CPU_OFFLOAD_BYTES
-    if _CPU_OFFLOAD_BYTES >= _CPU_OFFLOAD_MAX_BYTES:
+    if not EXPERT_OFFLOAD and _CPU_OFFLOAD_BYTES >= _CPU_OFFLOAD_MAX_BYTES:
         return module
 
     pin_memory = is_pin_memory_available()
@@ -504,11 +506,25 @@ def maybe_offload_to_cpu(module: torch.nn.Module) -> torch.nn.Module:
 
     # debug module mame -> CPU
     logger.info(f"🎯 offload module {module._get_name()} -> CPU")
-    for name, p in module.named_parameters():
-        logger.info(f"🎯 参数[{name}]: 设备={p.data.device}, 大小={p.data.size()}, 内存={p.data.numel() * p.data.element_size()} 字节")
+    # for name, p in module.named_parameters():
+    #     logger.info(f"🎯 参数[{name}]: 设备={p.data.device}, 大小={p.data.size()}, 内存={(p.data.numel() * p.data.element_size()) / (1024**3):.6f} GiB")
 
-    for p in module.parameters():
-        if _CPU_OFFLOAD_BYTES >= _CPU_OFFLOAD_MAX_BYTES:
+    for name, p in module.named_parameters():
+        # 只 offload expert 
+        """
+        DeepSeek: 
+        - model.layers.<num>.mlp.experts.<num>.down_proj
+        - model.layers.<num>.mlp.experts.<num>.gate_proj
+        - model.layers.<num>.mlp.experts.<num>.up_proj
+
+        Mixtral:
+        - model.layers.0.block_sparse_moe.experts.<num>.w1.weight
+        - model.layers.0.block_sparse_moe.experts.<num>.w2.weight
+        - model.layers.0.block_sparse_moe.experts.<num>.w3.weight
+        """
+        if EXPERT_OFFLOAD and "expert" not in name:
+            continue
+        if not EXPERT_OFFLOAD and (_CPU_OFFLOAD_BYTES >= _CPU_OFFLOAD_MAX_BYTES):
             # we use per-parameter offloading
             # one module might have some parameters offloaded and some not
             break
@@ -524,10 +540,7 @@ def maybe_offload_to_cpu(module: torch.nn.Module) -> torch.nn.Module:
         p.data = cpu_data
         _CPU_OFFLOAD_BYTES += p.data.numel() * p.data.element_size()
         offloaded_parameters = True
-        # FIXME: add debug
 
-    logger.info(f"🎯 [debug] torch.cuda.empty_cache()")
-    torch.cuda.empty_cache()
     print(f"[debug] 🎯 当前 GPU内存: {torch.cuda.memory_allocated()/(1024**2):.2f}MB, CPU内存: {psutil.Process(os.getpid()).memory_info().rss/(1024**2):.2f}MB")
 
     if offloaded_parameters:
@@ -571,6 +584,14 @@ def make_layers(
             maybe_offload_to_cpu(layer_fn(prefix=f"{prefix}.{idx}"))
             for idx in range(start_layer, end_layer)
         ] + [PPMissingLayer() for _ in range(end_layer, num_hidden_layers)])
+    
+    # 打印所有参数的位置
+    logger.info(f"🎯 === Parameters location for layer.{prefix} ===")
+    for name, param in modules.named_parameters():
+        if param is not None:
+            location = "cpu" if param.device.type == "cpu" else f"gpu:{param.device.index}"
+            logger.info(f"🎯 {name} -> {location}")
+
     return start_layer, end_layer, modules
 
 
