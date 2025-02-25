@@ -526,6 +526,7 @@ def maybe_offload_to_cpu(module: torch.nn.Module) -> torch.nn.Module:
 
     logger.info(f"🎯 [debug] torch.cuda.empty_cache()")
     torch.cuda.empty_cache()
+    print(f"[debug] 🎯 当前 GPU内存: {torch.cuda.memory_allocated()/(1024**2):.2f}MB, CPU内存: {psutil.Process(os.getpid()).memory_info().rss/(1024**2):.2f}MB")
 
     if offloaded_parameters:
         original_forward = module.forward
