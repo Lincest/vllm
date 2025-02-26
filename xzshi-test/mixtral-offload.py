@@ -22,6 +22,7 @@ llm = LLM(
     model="/mnt/wcy/Mixtral-8x7B-Instruct-v0.1",  # 替换为你的模型路径
     cpu_offload_gb=40,  # 因为模型更大，增加 CPU 卸载内存
     trust_remote_code=True,
+    enforce_eager=True,
     dtype="float16"  # 使用半精度以减少内存占用
 )
 
