@@ -306,7 +306,7 @@ class FusedMoE(torch.nn.Module):
                 UnquantizedFusedMoEMethod())
         else:
             self.quant_method = quant_config.get_quant_method(self, prefix)
-            logger.info(f"🎯 self.quant_method = ", self.quant_method)
+            # logger.info(f"🎯 self.quant_method = ", self.quant_method)
         assert self.quant_method is not None
 
         moe_quant_params = {

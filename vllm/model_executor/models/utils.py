@@ -495,7 +495,7 @@ def maybe_offload_to_cpu(module: torch.nn.Module) -> torch.nn.Module:
         return module
 
     global _CPU_OFFLOAD_MAX_BYTES, _CPU_OFFLOAD_BYTES
-    if not EXPERT_OFFLOAD and _CPU_OFFLOAD_BYTES >= _CPU_OFFLOAD_MAX_BYTES:
+    if _CPU_OFFLOAD_BYTES >= _CPU_OFFLOAD_MAX_BYTES:
         return module
 
     pin_memory = is_pin_memory_available()
@@ -540,7 +540,7 @@ def maybe_offload_to_cpu(module: torch.nn.Module) -> torch.nn.Module:
         """
         if EXPERT_OFFLOAD and "expert" not in name:
             continue
-        if not EXPERT_OFFLOAD and (_CPU_OFFLOAD_BYTES >= _CPU_OFFLOAD_MAX_BYTES):
+        if (_CPU_OFFLOAD_BYTES >= _CPU_OFFLOAD_MAX_BYTES):
             # we use per-parameter offloading
             # one module might have some parameters offloaded and some not
             break
