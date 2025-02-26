@@ -445,7 +445,7 @@ class DeepseekV2MLAAttention(nn.Module):
             cache_config=cache_config,
             quant_config=quant_config,
             prefix=f"{prefix}.attn",
-            use_mla=False, # FIXME: debug
+            use_mla=True, # FIXME: debug
             # MLA Args
             q_lora_rank=self.q_lora_rank,
             kv_lora_rank=self.kv_lora_rank,
