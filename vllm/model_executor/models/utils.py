@@ -521,6 +521,22 @@ def maybe_offload_to_cpu(module: torch.nn.Module) -> torch.nn.Module:
         - model.layers.0.block_sparse_moe.experts.<num>.w1.weight
         - model.layers.0.block_sparse_moe.experts.<num>.w2.weight
         - model.layers.0.block_sparse_moe.experts.<num>.w3.weight
+
+        Mixtral After Create: 
+            30.self_attn.qkv_proj.weight -> gpu:0
+            30.self_attn.o_proj.weight -> gpu:0
+            30.block_sparse_moe.gate.weight -> gpu:0
+            30.block_sparse_moe.experts.w13_weight -> cpu
+            30.block_sparse_moe.experts.w2_weight -> cpu
+            30.input_layernorm.weight -> gpu:0
+            30.post_attention_layernorm.weight -> gpu:0
+            31.self_attn.qkv_proj.weight -> gpu:0
+            31.self_attn.o_proj.weight -> gpu:0
+            31.block_sparse_moe.gate.weight -> gpu:0
+            31.block_sparse_moe.experts.w13_weight -> cpu
+            31.block_sparse_moe.experts.w2_weight -> cpu
+            31.input_layernorm.weight -> gpu:0
+            31.post_attention_layernorm.weight -> gpu:0
         """
         if EXPERT_OFFLOAD and "expert" not in name:
             continue
