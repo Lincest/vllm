@@ -155,17 +155,17 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
             custom_routing_function=custom_routing_function,
             scoring_func=scoring_func,
             e_score_correction_bias=e_score_correction_bias)
-        logger.info(f"===================== 🎯 forward_cuda: ==================")
-        logger.info(f"🎯 topk_ids 形状: {topk_ids.shape}, topk_weights 形状: {topk_weights.shape}")
-        # 打印样本数据（前几个token的路由选择）
-        num_samples = min(5, topk_ids.size(0))  # 最多打印5个样本
-        for i in range(num_samples):
-            experts = topk_ids[i].cpu().tolist()
-            weights = topk_weights[i].cpu().tolist()
-            # 将专家ID和权重配对显示
-            expert_weight_pairs = [f"🎯 专家{e}({w:.4f})" for e, w in zip(experts, weights)]
-            logger.info(f"🎯 Token {i}: {', '.join(expert_weight_pairs)}")
-        logger.info(f"===================== 🎯 forward_cuda: ==================")
+        # logger.info(f"===================== 🎯 forward_cuda: ==================")
+        # logger.info(f"🎯 topk_ids 形状: {topk_ids.shape}, topk_weights 形状: {topk_weights.shape}")
+        # # 打印样本数据（前几个token的路由选择）
+        # num_samples = min(5, topk_ids.size(0))  # 最多打印5个样本
+        # for i in range(num_samples):
+        #     experts = topk_ids[i].cpu().tolist()
+        #     weights = topk_weights[i].cpu().tolist()
+        #     # 将专家ID和权重配对显示
+        #     expert_weight_pairs = [f"🎯 专家{e}({w:.4f})" for e, w in zip(experts, weights)]
+        #     logger.info(f"🎯 Token {i}: {', '.join(expert_weight_pairs)}")
+        # logger.info(f"===================== 🎯 forward_cuda: ==================")
 
         return fused_experts(hidden_states=x,
                              w1=layer.w13_weight,
