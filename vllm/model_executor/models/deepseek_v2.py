@@ -52,10 +52,10 @@ from vllm.model_executor.model_loader.weight_utils import (
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import IntermediateTensors
 
-from .interfaces import SupportsPP
-from .utils import (PPMissingLayer, is_pp_missing_parameter,
+from vllm.model_executor.models.interfaces import SupportsPP
+from vllm.model_executor.models.utils import (PPMissingLayer, is_pp_missing_parameter,
                     make_empty_intermediate_tensors_factory, make_layers,
-                    maybe_prefix)
+                    maybe_prefix, cpu_cuda_timer)
 
 
 class DeepseekV2MLP(nn.Module):
@@ -437,27 +437,28 @@ class DeepseekV2MLAAttention(nn.Module):
             mscale = yarn_get_mscale(scaling_factor, float(mscale_all_dim))
             self.scaling = self.scaling * mscale * mscale
 
-        self.mla_attn = Attention(
-            num_heads=self.num_local_heads,
-            head_size=self.kv_lora_rank,
-            scale=self.scaling,
-            num_kv_heads=1,
-            cache_config=cache_config,
-            quant_config=quant_config,
-            prefix=f"{prefix}.attn",
-            use_mla=True, # FIXME: debug
-            # MLA Args
-            q_lora_rank=self.q_lora_rank,
-            kv_lora_rank=self.kv_lora_rank,
-            qk_nope_head_dim=self.qk_nope_head_dim,
-            qk_rope_head_dim=self.qk_rope_head_dim,
-            qk_head_dim=self.qk_head_dim,
-            v_head_dim=self.v_head_dim,
-            rotary_emb=self.rotary_emb,
-            q_proj=self.q_proj if self.q_lora_rank is None else self.q_b_proj,
-            kv_b_proj=self.kv_b_proj,
-            o_proj=self.o_proj,
-        )
+        # FIXME: comment for v100
+        # self.mla_attn = Attention(
+        #     num_heads=self.num_local_heads,
+        #     head_size=self.kv_lora_rank,
+        #     scale=self.scaling,
+        #     num_kv_heads=1,
+        #     cache_config=cache_config,
+        #     quant_config=quant_config,
+        #     prefix=f"{prefix}.attn",
+        #     use_mla=True, 
+        #     # MLA Args
+        #     q_lora_rank=self.q_lora_rank,
+        #     kv_lora_rank=self.kv_lora_rank,
+        #     qk_nope_head_dim=self.qk_nope_head_dim,
+        #     qk_rope_head_dim=self.qk_rope_head_dim,
+        #     qk_head_dim=self.qk_head_dim,
+        #     v_head_dim=self.v_head_dim,
+        #     rotary_emb=self.rotary_emb,
+        #     q_proj=self.q_proj if self.q_lora_rank is None else self.q_b_proj,
+        #     kv_b_proj=self.kv_b_proj,
+        #     o_proj=self.o_proj,
+        # )
 
         self.prefix = prefix
         self.debug_layer_idx = int(self.prefix.split(".")[-2])
@@ -469,6 +470,10 @@ class DeepseekV2MLAAttention(nn.Module):
         kv_cache: torch.Tensor,
         attn_metadata: AttentionMetadata,
     ) -> torch.Tensor:
+        # FIXME: comment for v100
+        return hidden_states
+        # FIXME: comment for v100
+
         if self.q_lora_rank is not None:
             ckq = self.q_a_proj(hidden_states)[0]
             hidden_states_or_q_c = self.q_a_layernorm(ckq)
@@ -684,10 +689,10 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP):
         intermediate_tensors: Optional[IntermediateTensors] = None,
         inputs_embeds: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, IntermediateTensors]:
-        print("🎯 [debug] DeepseekV2ForCausalLM is forwarding...") 
-        hidden_states = self.model(input_ids, positions, kv_caches,
-                                   attn_metadata, intermediate_tensors,
-                                   inputs_embeds)
+        with cpu_cuda_timer("🎯 [debug] DeepseekV2ForCausalLM forwarding"):
+            hidden_states = self.model(input_ids, positions, kv_caches,
+                                    attn_metadata, intermediate_tensors,
+                                    inputs_embeds)
         return hidden_states
 
     def compute_logits(
@@ -771,7 +776,10 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP):
                 if is_pp_missing_parameter(name, self):
                     continue
 
-                param = params_dict[name]
+                try:
+                    param = params_dict[name]
+                except KeyError:
+                    break
                 weight_loader = param.weight_loader
                 weight_loader(param, loaded_weight, shard_id)
                 break
@@ -785,7 +793,10 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP):
                     if is_pp_missing_parameter(name, self):
                         continue
 
-                    param = params_dict[name]
+                    try:
+                        param = params_dict[name]
+                    except KeyError:
+                        break
                     weight_loader = param.weight_loader
                     weight_loader(param,
                                   loaded_weight,
@@ -806,7 +817,10 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP):
                     if is_pp_missing_parameter(name, self):
                         continue
 
-                    param = params_dict[name]
+                    try:
+                        param = params_dict[name]
+                    except KeyError:
+                        continue
                     weight_loader = getattr(param, "weight_loader",
                                             default_weight_loader)
                     weight_loader(param, loaded_weight)

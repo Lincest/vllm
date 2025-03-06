@@ -25,7 +25,14 @@ sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 
 # https://huggingface.co/deepseek-ai/DeepSeek-V2-Lite-Chat/tree/main
 # 大小：31.41 GB
-llm = LLM(model="/home/sugon/xzshi/vllm/models/deepseek-v2-lite",cpu_offload_gb=20,trust_remote_code=True,dtype="float16")
+llm = LLM(
+    model="/home/sugon/xzshi/vllm/models/deepseek-v2-lite",
+    cpu_offload_gb=15,
+    max_model_len=512,
+    gpu_memory_utilization=0.8,
+    enforce_eager=True,
+    trust_remote_code=True,dtype="float16"
+    )
 # Generate texts from the prompts. The output is a list of RequestOutput objects
 # that contain the prompt, generated text, and other information.
 outputs = llm.generate(prompts, sampling_params)

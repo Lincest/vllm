@@ -18,7 +18,8 @@ llm = LLM(
     model="/home/sugon/xzshi/vllm/models/mixtral-gptq", 
     cpu_offload_gb=15,
     trust_remote_code=True,
-    gpu_memory_utilization=0.7,
+    gpu_memory_utilization=0.8,
+    enforce_eager=True,
     max_model_len=2048,
     dtype="float16"
 )

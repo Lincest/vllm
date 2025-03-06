@@ -1,0 +1,221 @@
+INFO 03-06 22:27:47 __init__.py:190] Automatically detected platform cuda.
+VLLM_ATTENTION_BACKEND: XFORMERS, VLLM_USE_TRITON_FLASH_ATTN: 0
+INFO 03-06 22:27:48 config.py:137] Replacing legacy 'type' key with 'rope_type'
+WARNING 03-06 22:27:48 config.py:2386] Casting torch.bfloat16 to torch.float16.
+INFO 03-06 22:27:55 config.py:542] This model supports multiple tasks: {'classify', 'score', 'generate', 'reward', 'embed'}. Defaulting to 'generate'.
+WARNING 03-06 22:27:55 cuda.py:95] To see benefits of async output processing, enable CUDA graph. Since, enforce-eager is enabled, async output processor cannot be used
+WARNING 03-06 22:27:55 config.py:678] Async output processing is not supported on the current platform type cuda.
+INFO 03-06 22:27:55 config.py:3275] MLA is enabled; forcing chunked prefill and prefix caching to be disabled.
+INFO 03-06 22:27:55 llm_engine.py:234] Initializing a V0 LLM engine (v0.7.3.dev0+g0408efc6.d20250218) with config: model='/home/sugon/xzshi/vllm/models/deepseek-v2-lite', speculative_config=None, tokenizer='/home/sugon/xzshi/vllm/models/deepseek-v2-lite', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, override_neuron_config=None, tokenizer_revision=None, trust_remote_code=True, dtype=torch.float16, max_seq_len=512, download_dir=None, load_format=LoadFormat.AUTO, tensor_parallel_size=1, pipeline_parallel_size=1, disable_custom_all_reduce=False, quantization=None, enforce_eager=True, kv_cache_dtype=auto,  device_config=cuda, decoding_config=DecodingConfig(guided_decoding_backend='xgrammar'), observability_config=ObservabilityConfig(otlp_traces_endpoint=None, collect_model_forward_time=False, collect_model_execute_time=False), seed=0, served_model_name=/home/sugon/xzshi/vllm/models/deepseek-v2-lite, num_scheduler_steps=1, multi_step_stream_outputs=True, enable_prefix_caching=False, chunked_prefill_enabled=False, use_async_output_proc=False, disable_mm_preprocessor_cache=False, mm_processor_kwargs=None, pooler_config=None, compilation_config={"splitting_ops":[],"compile_sizes":[],"cudagraph_capture_sizes":[],"max_capture_size":0}, use_cached_outputs=False, 
+INFO 03-06 22:27:56 cuda.py:161] Using Triton MLA backend.
+WARNING 03-06 22:27:57 triton_decode_attention.py:44] The following error message 'operation scheduled before its operands' can be ignored.
+INFO 03-06 22:27:57 model_runner.py:1110] Starting to load model /home/sugon/xzshi/vllm/models/deepseek-v2-lite...
+INFO 03-06 22:27:57 loader.py:382] ℹ️ load model, device = cuda
+INFO 03-06 22:27:57 loader.py:387] 🎯 [debug] 模型加载前，GPU内存使用: 已分配=0.00MB, 已预留=0.00MB
+INFO 03-06 22:27:57 utils.py:561] 🎯 offload module DeepseekV2DecoderLayer -> CPU
+[debug] 🎯 当前 GPU内存: 575.01MB, CPU内存: 956.53MB
+INFO 03-06 22:27:57 utils.py:561] 🎯 offload module DeepseekV2DecoderLayer -> CPU
+[debug] 🎯 register cpu data: layer_1_mlp.experts.w13_weight
+[debug] 🎯 register cpu data: layer_1_mlp.experts.w2_weight
+[debug] 🎯 register cpu data: layer_1_mlp.shared_experts.gate_up_proj.weight
+[debug] 🎯 register cpu data: layer_1_mlp.shared_experts.down_proj.weight
+[debug] 🎯 当前 GPU内存: 601.52MB, CPU内存: 2540.90MB
+INFO 03-06 22:27:58 utils.py:561] 🎯 offload module DeepseekV2DecoderLayer -> CPU
+[debug] 🎯 register cpu data: layer_2_mlp.experts.w13_weight
+[debug] 🎯 register cpu data: layer_2_mlp.experts.w2_weight
+[debug] 🎯 register cpu data: layer_2_mlp.shared_experts.gate_up_proj.weight
+[debug] 🎯 register cpu data: layer_2_mlp.shared_experts.down_proj.weight
+[debug] 🎯 当前 GPU内存: 628.03MB, CPU内存: 4124.90MB
+INFO 03-06 22:27:59 utils.py:561] 🎯 offload module DeepseekV2DecoderLayer -> CPU
+[debug] 🎯 register cpu data: layer_3_mlp.experts.w13_weight
+[debug] 🎯 register cpu data: layer_3_mlp.experts.w2_weight
+[debug] 🎯 register cpu data: layer_3_mlp.shared_experts.gate_up_proj.weight
+[debug] 🎯 register cpu data: layer_3_mlp.shared_experts.down_proj.weight
+[debug] 🎯 当前 GPU内存: 654.54MB, CPU内存: 5708.90MB
+INFO 03-06 22:28:00 utils.py:561] 🎯 offload module DeepseekV2DecoderLayer -> CPU
+[debug] 🎯 register cpu data: layer_4_mlp.experts.w13_weight
+[debug] 🎯 register cpu data: layer_4_mlp.experts.w2_weight
+[debug] 🎯 register cpu data: layer_4_mlp.shared_experts.gate_up_proj.weight
+[debug] 🎯 register cpu data: layer_4_mlp.shared_experts.down_proj.weight
+[debug] 🎯 当前 GPU内存: 681.04MB, CPU内存: 7293.09MB
+INFO 03-06 22:28:01 utils.py:561] 🎯 offload module DeepseekV2DecoderLayer -> CPU
+[debug] 🎯 register cpu data: layer_5_mlp.experts.w13_weight
+[debug] 🎯 register cpu data: layer_5_mlp.experts.w2_weight
+[debug] 🎯 register cpu data: layer_5_mlp.shared_experts.gate_up_proj.weight
+[debug] 🎯 register cpu data: layer_5_mlp.shared_experts.down_proj.weight
+[debug] 🎯 当前 GPU内存: 707.55MB, CPU内存: 8877.09MB
+INFO 03-06 22:28:02 utils.py:561] 🎯 offload module DeepseekV2DecoderLayer -> CPU
+[debug] 🎯 register cpu data: layer_6_mlp.experts.w13_weight
+[debug] 🎯 register cpu data: layer_6_mlp.experts.w2_weight
+[debug] 🎯 register cpu data: layer_6_mlp.shared_experts.gate_up_proj.weight
+[debug] 🎯 register cpu data: layer_6_mlp.shared_experts.down_proj.weight
+[debug] 🎯 当前 GPU内存: 734.06MB, CPU内存: 10461.09MB
+INFO 03-06 22:28:03 utils.py:561] 🎯 offload module DeepseekV2DecoderLayer -> CPU
+[debug] 🎯 register cpu data: layer_7_mlp.experts.w13_weight
+[debug] 🎯 register cpu data: layer_7_mlp.experts.w2_weight
+[debug] 🎯 register cpu data: layer_7_mlp.shared_experts.gate_up_proj.weight
+[debug] 🎯 register cpu data: layer_7_mlp.shared_experts.down_proj.weight
+[debug] 🎯 当前 GPU内存: 760.57MB, CPU内存: 12045.28MB
+INFO 03-06 22:28:04 utils.py:561] 🎯 offload module DeepseekV2DecoderLayer -> CPU
+[debug] 🎯 register cpu data: layer_8_mlp.experts.w13_weight
+[debug] 🎯 register cpu data: layer_8_mlp.experts.w2_weight
+[debug] 🎯 register cpu data: layer_8_mlp.shared_experts.gate_up_proj.weight
+[debug] 🎯 register cpu data: layer_8_mlp.shared_experts.down_proj.weight
+[debug] 🎯 当前 GPU内存: 787.08MB, CPU内存: 13629.28MB
+INFO 03-06 22:28:05 utils.py:561] 🎯 offload module DeepseekV2DecoderLayer -> CPU
+[debug] 🎯 register cpu data: layer_9_mlp.experts.w13_weight
+[debug] 🎯 register cpu data: layer_9_mlp.experts.w2_weight
+[debug] 🎯 register cpu data: layer_9_mlp.shared_experts.gate_up_proj.weight
+[debug] 🎯 register cpu data: layer_9_mlp.shared_experts.down_proj.weight
+[debug] 🎯 当前 GPU内存: 813.59MB, CPU内存: 15213.46MB
+INFO 03-06 22:28:06 utils.py:691] 🎯 === Parameters location for layer.model.layers ===
+INFO 03-06 22:28:06 utils.py:695] 🎯 0.self_attn.q_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 0.self_attn.kv_a_proj_with_mqa.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 0.self_attn.kv_a_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 0.self_attn.kv_b_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 0.self_attn.o_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 0.mlp.gate_up_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 0.mlp.down_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 0.input_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 0.post_attention_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 1.self_attn.q_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 1.self_attn.kv_a_proj_with_mqa.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 1.self_attn.kv_a_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 1.self_attn.kv_b_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 1.self_attn.o_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 1.mlp.gate.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 1.mlp.experts.w13_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 1.mlp.experts.w2_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 1.mlp.shared_experts.gate_up_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 1.mlp.shared_experts.down_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 1.input_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 1.post_attention_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 2.self_attn.q_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 2.self_attn.kv_a_proj_with_mqa.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 2.self_attn.kv_a_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 2.self_attn.kv_b_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 2.self_attn.o_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 2.mlp.gate.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 2.mlp.experts.w13_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 2.mlp.experts.w2_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 2.mlp.shared_experts.gate_up_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 2.mlp.shared_experts.down_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 2.input_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 2.post_attention_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 3.self_attn.q_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 3.self_attn.kv_a_proj_with_mqa.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 3.self_attn.kv_a_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 3.self_attn.kv_b_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 3.self_attn.o_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 3.mlp.gate.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 3.mlp.experts.w13_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 3.mlp.experts.w2_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 3.mlp.shared_experts.gate_up_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 3.mlp.shared_experts.down_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 3.input_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 3.post_attention_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 4.self_attn.q_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 4.self_attn.kv_a_proj_with_mqa.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 4.self_attn.kv_a_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 4.self_attn.kv_b_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 4.self_attn.o_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 4.mlp.gate.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 4.mlp.experts.w13_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 4.mlp.experts.w2_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 4.mlp.shared_experts.gate_up_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 4.mlp.shared_experts.down_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 4.input_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 4.post_attention_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 5.self_attn.q_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 5.self_attn.kv_a_proj_with_mqa.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 5.self_attn.kv_a_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 5.self_attn.kv_b_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 5.self_attn.o_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 5.mlp.gate.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 5.mlp.experts.w13_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 5.mlp.experts.w2_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 5.mlp.shared_experts.gate_up_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 5.mlp.shared_experts.down_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 5.input_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 5.post_attention_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 6.self_attn.q_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 6.self_attn.kv_a_proj_with_mqa.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 6.self_attn.kv_a_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 6.self_attn.kv_b_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 6.self_attn.o_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 6.mlp.gate.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 6.mlp.experts.w13_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 6.mlp.experts.w2_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 6.mlp.shared_experts.gate_up_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 6.mlp.shared_experts.down_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 6.input_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 6.post_attention_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 7.self_attn.q_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 7.self_attn.kv_a_proj_with_mqa.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 7.self_attn.kv_a_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 7.self_attn.kv_b_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 7.self_attn.o_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 7.mlp.gate.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 7.mlp.experts.w13_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 7.mlp.experts.w2_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 7.mlp.shared_experts.gate_up_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 7.mlp.shared_experts.down_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 7.input_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 7.post_attention_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 8.self_attn.q_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 8.self_attn.kv_a_proj_with_mqa.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 8.self_attn.kv_a_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 8.self_attn.kv_b_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 8.self_attn.o_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 8.mlp.gate.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 8.mlp.experts.w13_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 8.mlp.experts.w2_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 8.mlp.shared_experts.gate_up_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 8.mlp.shared_experts.down_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 8.input_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 8.post_attention_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 9.self_attn.q_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 9.self_attn.kv_a_proj_with_mqa.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 9.self_attn.kv_a_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 9.self_attn.kv_b_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 9.self_attn.o_proj.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 9.mlp.gate.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 9.mlp.experts.w13_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 9.mlp.experts.w2_weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 9.mlp.shared_experts.gate_up_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 9.mlp.shared_experts.down_proj.weight -> cpu
+INFO 03-06 22:28:06 utils.py:695] 🎯 9.input_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:695] 🎯 9.post_attention_layernorm.weight -> gpu:0
+INFO 03-06 22:28:06 utils.py:699] 🎯 Expert preload manager: start_layer = 0, end_layer = None, module = dict_keys([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+INFO 03-06 22:28:06 loader.py:395] 🎯 [debug] _initialize 加载后，GPU内存使用: 已分配=1213.59MB, 已预留=1922.00MB
+INFO 03-06 22:28:24 loader.py:429] 🎯 [debug] 模型参数加载后，GPU内存使用: 已分配=1213.59MB, 已预留=2626.00MB
+INFO 03-06 22:28:24 model_runner.py:1115] Loading model weights took 1.1851 GB
+[debug] 🎯 当前层参数不在 GPU 上，需要先加载
+WARNING 03-06 22:28:27 fused_moe.py:806] Using default MoE config. Performance might be sub-optimal! Config file not found at /home/sugon/xzshi/vllm/vllm-src/vllm/model_executor/layers/fused_moe/configs/E=64,N=1408,device_name=Tesla_V100-PCIE-16GB.json
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 3429.12ms, GPU时间: 3429.13ms
+INFO 03-06 22:28:28 worker.py:267] Memory profiling takes 3.78 seconds
+INFO 03-06 22:28:28 worker.py:267] the current vLLM instance can use total_gpu_memory (15.77GiB) x gpu_memory_utilization (0.80) = 12.61GiB
+INFO 03-06 22:28:28 worker.py:267] model weights take 1.19GiB; non_torch_memory takes 0.14GiB; PyTorch activation peak memory takes 10.52GiB; the rest of the memory reserved for KV Cache is 0.76GiB.
+INFO 03-06 22:28:28 executor_base.py:110] # CUDA blocks: 3996, # CPU blocks: 20971
+INFO 03-06 22:28:28 executor_base.py:115] Maximum concurrency for 512 tokens per request: 124.88x
+INFO 03-06 22:28:29 llm_engine.py:431] init engine (profile, create kv cache, warmup model) took 4.83 seconds
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 528.57ms, GPU时间: 528.57ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 26.25ms, GPU时间: 26.22ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 12.00ms, GPU时间: 11.98ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 11.91ms, GPU时间: 11.90ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 11.87ms, GPU时间: 11.87ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 12.10ms, GPU时间: 12.09ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 11.87ms, GPU时间: 11.86ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 11.74ms, GPU时间: 11.74ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 11.95ms, GPU时间: 11.94ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 11.71ms, GPU时间: 11.71ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 11.92ms, GPU时间: 11.92ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 11.86ms, GPU时间: 11.85ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 12.08ms, GPU时间: 12.08ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 11.79ms, GPU时间: 11.79ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 11.99ms, GPU时间: 11.99ms
+🎯 [debug] DeepseekV2ForCausalLM forwarding - CPU时间: 11.98ms, GPU时间: 11.97ms
+Prompt: 'Hello, my name is', Generated text: '="../_rag不动egraphics工="../_我们现在的人气却是="../_ today="../_rag走="../_我们现在'
+Prompt: 'The president of the United States is', Generated text: '="../_我们现在的人气部长及="../_rag迅速="../_砖近日="../_ principals的长="../_'
+Prompt: 'The capital of France is', Generated text: '="../_我们现在ithe的保护="../_rag="../_boxes="../_今日="../_我们现在ired="../_ today和社会'
+Prompt: 'The future of AI is', Generated text: '="../_我们现在正在今天是subNav惹喜="../_boxes="../_我们现在和李^+_{ counter pleasant'
