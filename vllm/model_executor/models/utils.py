@@ -24,7 +24,7 @@ logger = init_logger(__name__)
 
 # FIXME: 目前开启是否卸载专家的开关
 # EXPERT_OFFLOAD = False
-EXPERT_OFFLOAD = True
+EXPERT_OFFLOAD = False
 expert_preload_manager = None # 全局预取管理器
 
 def get_expert_preload_manager():
@@ -599,8 +599,10 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
                                        layout=p.data.layout,
                                        device='cpu',
                                        pin_memory=pin_memory)
+        print(f"[debug] 🎯 {p.device=}, {cpu_data.device=}")
         cpu_data.copy_(p.data)
         p.data = cpu_data
+
 
         _CPU_OFFLOAD_BYTES += p.data.numel() * p.data.element_size()
         offloaded_parameters = True
