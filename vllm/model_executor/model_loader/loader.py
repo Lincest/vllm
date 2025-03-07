@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # ruff: noqa: SIM117
+import gc
 import collections
 import copy
 import dataclasses
@@ -57,7 +58,7 @@ from vllm.platforms import current_platform
 from vllm.transformers_utils.s3_utils import glob as s3_glob
 from vllm.transformers_utils.utils import is_s3
 from vllm.utils import is_pin_memory_available
-
+from vllm.model_executor.models.utils import get_expert_preload_manager, EXPERT_OFFLOAD
 
 @contextmanager
 def device_loading_context(module: torch.nn.Module,
@@ -374,6 +375,7 @@ class DefaultModelLoader(BaseModelLoader):
                               allow_patterns_overrides=None)
 
     def load_model(self, vllm_config: VllmConfig) -> nn.Module:
+
         device_config = vllm_config.device_config
         model_config = vllm_config.model_config
 
@@ -397,6 +399,10 @@ class DefaultModelLoader(BaseModelLoader):
             weights_to_load = {name for name, _ in model.named_parameters()}
             loaded_weights = model.load_weights(
                 self._get_all_weights(model_config, model))
+
+            # get expert preload_manager 
+            expert_preload_manager = get_expert_preload_manager()
+
             # We only enable strict check for non-quantized models
             # that have loaded weights tracking currently.
             if model_config.quantization is None and loaded_weights is not None:
@@ -406,7 +412,7 @@ class DefaultModelLoader(BaseModelLoader):
                         "Following weights were not initialized from "
                         f"checkpoint: {weights_not_loaded}")
 
-            for _, module in model.named_modules():
+            for module_name, module in model.named_modules():
                 quant_method = getattr(module, "quant_method", None)
                 if isinstance(quant_method, QuantizeMethodBase):
                     # When quant methods need to process weights after loading
@@ -423,6 +429,24 @@ class DefaultModelLoader(BaseModelLoader):
                     # TODO(lucas): see if there is a way to unify the signatures
                     # of process_weights_after_loading
                     module.process_weights_after_loading(model_config.dtype)
+
+                # to avoid circular import
+                # if module.__class__.__name__ == "DeepseekV2MoE" and EXPERT_OFFLOAD and expert_preload_manager is not None:
+                #     # register expert param: 
+                #     for name, p in module.named_parameters():
+                #         if "expert" in name and p.device.type == "cpu":
+                #             # print(f"[debug] 🎯 register param with weight -> offload manager name = {name}, module name = {module_name}")
+
+                #             # module_name: model.layers.12.mlp
+                #             # name: experts.w2_weight
+                #             layer_idx = int(module_name.split(".")[-2])
+                #             expert_preload_manager.register_cpu_param(layer_idx, name, p.data)
+
+                #             print(f"[debug] 🎯 register cpu data: layer_{layer_idx}_{name}")
+                #     # expert_preload_manager.register_cpu_param(layer_idx, name, cpu_data)
+                #     gc.collect()
+
+
             if torch.cuda.is_available():
                 memory_allocated = torch.cuda.memory_allocated() / 1024**2
                 memory_reserved = torch.cuda.memory_reserved() / 1024**2

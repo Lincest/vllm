@@ -27,7 +27,7 @@ sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 # 大小：31.41 GB
 llm = LLM(
     model="/home/sugon/xzshi/vllm/models/deepseek-v2-lite",
-    cpu_offload_gb=15,
+    cpu_offload_gb=20,
     max_model_len=512,
     gpu_memory_utilization=0.8,
     enforce_eager=True,

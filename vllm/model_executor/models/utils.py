@@ -23,7 +23,13 @@ from vllm.utils import is_pin_memory_available
 logger = init_logger(__name__)
 
 # FIXME: 目前开启是否卸载专家的开关
+# EXPERT_OFFLOAD = False
 EXPERT_OFFLOAD = True
+expert_preload_manager = None # 全局预取管理器
+
+def get_expert_preload_manager():
+    global expert_preload_manager
+    return expert_preload_manager
 
 WeightsMapping = Mapping[str, Optional[str]]
 """If a key maps to a value of `None`, the corresponding weight is ignored."""
@@ -523,18 +529,9 @@ def set_cpu_offload_max_bytes(max_bytes: int) -> None:
     _CPU_OFFLOAD_BYTES = 0
     _CPU_OFFLOAD_MAX_BYTES = max_bytes
 
-# 初始化全局预取管理器
-expert_preload_manager = None
-
 def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = None) -> torch.nn.Module:
+    global expert_preload_manager
 
-    if EXPERT_OFFLOAD:
-        global expert_preload_manager
-        if expert_preload_manager is None:
-            expert_preload_manager = ExpertPreloadManager()
-            expert_preload_manager.set_start_layer_idx(layer_idx)
-
-    # ================ 原始的 maybe_offload_to_cpu 加载逻辑 ================== 
     device = next(module.parameters()).device
 
     if device == torch.device("cpu"):
@@ -546,11 +543,6 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
             expert_preload_manager.set_last_layer_idx(layer_idx - 1)
         return module
 
-    # register module to expert preload manager
-    if EXPERT_OFFLOAD:
-        if layer_idx is not None:
-            expert_preload_manager.register_module(layer_idx, module, device)
-
     pin_memory = is_pin_memory_available()
 
     # offload parameters to CPU
@@ -558,9 +550,10 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
     offloaded_parameters = False
 
     # debug module mame -> CPU
-    logger.info(f"🎯 offload module {module._get_name()} -> CPU")
+    logger.info(f"🎯 offload module layer_{layer_idx}_{module._get_name()} -> CPU")
     # for name, p in module.named_parameters():
     #     logger.info(f"🎯 参数[{name}]: 设备={p.data.device}, 大小={p.data.size()}, 内存={(p.data.numel() * p.data.element_size()) / (1024**3):.6f} GiB")
+    module_is_registered = False
 
     for name, p in module.named_parameters():
         # 只 offload expert 
@@ -580,11 +573,23 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
         if "expert" not in name:
             continue
 
-        if (_CPU_OFFLOAD_BYTES >= _CPU_OFFLOAD_MAX_BYTES):
+        if EXPERT_OFFLOAD:
+            if expert_preload_manager is None:
+                expert_preload_manager = ExpertPreloadManager()
+                expert_preload_manager.set_start_layer_idx(layer_idx)
+
+        # register module to expert preload manager
+        if EXPERT_OFFLOAD:
+            if layer_idx is not None and not module_is_registered:
+                module_is_registered = True
+                print(f"[debug] 🎯 layer{layer_idx} register module")
+                expert_preload_manager.register_module(layer_idx, module, device)
+
+        if not EXPERT_OFFLOAD and (_CPU_OFFLOAD_BYTES >= _CPU_OFFLOAD_MAX_BYTES):
             # we use per-parameter offloading
             # one module might have some parameters offloaded and some not
-            if EXPERT_OFFLOAD:
-                expert_preload_manager.set_last_layer_idx(layer_idx)
+            # if EXPERT_OFFLOAD:
+            #     expert_preload_manager.set_last_layer_idx(layer_idx)
             break
 
         # `torch.empty_like` does not support `pin_memory` argument
@@ -595,9 +600,8 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
                                        device='cpu',
                                        pin_memory=pin_memory)
         cpu_data.copy_(p.data)
-        if EXPERT_OFFLOAD:
-            expert_preload_manager.register_cpu_param(layer_idx, name, cpu_data)
         p.data = cpu_data
+
         _CPU_OFFLOAD_BYTES += p.data.numel() * p.data.element_size()
         offloaded_parameters = True
 
@@ -615,6 +619,8 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
 
                 torch.cuda.current_stream().wait_stream(StreamContext.memory_stream)
 
+                # print(f"[debug] layer = {current_layer_idx}, 🎯 当前 GPU内存: {torch.cuda.memory_allocated()/(1024**2):.2f}MB, CPU内存: {psutil.Process(os.getpid()).memory_info().rss/(1024**2):.2f}MB")
+
                 # 检查当前层是否已加载到GPU
                 current_params_on_gpu = True
                 for name, p in module.named_parameters():
@@ -625,19 +631,19 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
                 # 如果当前层参数在CPU上，需要先加载
                 if not current_params_on_gpu:
                     print("[debug] 🎯 当前层参数不在 GPU 上，需要先加载")
-                    # 显式加载当前层
-                    for name, p in module.named_parameters():
-                        if "expert" in name and p.device.type == "cpu":
-                            p.data = p.data.to(device, non_blocking=True)
-                    # 确保加载完成
-                    torch.cuda.synchronize()
+                    expert_preload_manager.prefetch_next_layer(current_layer_idx)
+                    torch.cuda.current_stream().wait_stream(StreamContext.memory_stream)
+
+                # 预取
+                if next_layer_idx is not None:
+                    expert_preload_manager.prefetch_next_layer(next_layer_idx)
 
                 module.forward = original_forward
                 output = original_forward(*args, **kwargs)
                 module.forward = forward
 
-                if next_layer_idx is not None:
-                    expert_preload_manager.prefetch_next_layer(next_layer_idx)
+                if current_layer_idx is not None:
+                    expert_preload_manager.release_current_layer(current_layer_idx)
             else:
                 module.forward = original_forward
                 device_state = {
@@ -653,10 +659,6 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
                                         kwargs=kwargs,
                                         tie_weights=False
                                         )
-                # 计算完成后，异步释放当前层参数回CPU
-                if EXPERT_OFFLOAD:
-                    if current_layer_idx is not None:
-                        expert_preload_manager.release_current_layer(current_layer_idx)
 
                 module.forward = forward
             return output
@@ -696,6 +698,9 @@ def make_layers(
 
     if EXPERT_OFFLOAD:
         if expert_preload_manager is not None:
+            if expert_preload_manager.last_layer_idx is None:
+                expert_preload_manager.set_last_layer_idx(end_layer) # 说明所有专家层都被卸载了
+
             logger.info(f"🎯 Expert preload manager: start_layer = {expert_preload_manager.start_layer_idx}, end_layer = {expert_preload_manager.last_layer_idx}, module = {expert_preload_manager.modules_dict.keys()}")
 
     return start_layer, end_layer, modules
