@@ -19,6 +19,18 @@ prompts = [
     "The president of the United States is",
     "The capital of France is",
     "The future of AI is",
+    "The model name is",
+    "The largest ocean in the world is",
+    "The formula for water is",
+    "The speed of light is approximately",
+    "The author of 'War and Peace' is",
+    "The currency of Japan is",
+    "The tallest mountain on Earth is",
+    "The number of planets in our solar system is",
+    "The chemical symbol for gold is",
+    "The inventor of the telephone was",
+    "The most populated country in the world is",
+    "The year World War II ended was"
 ]
 # Create a sampling params object.
 sampling_params = SamplingParams(temperature=0.8, top_p=0.95)

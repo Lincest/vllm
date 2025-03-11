@@ -28,6 +28,7 @@ import torch
 from torch import nn
 from transformers import PretrainedConfig
 
+from vllm.model_executor.models.utils import cpu_cuda_timer
 from vllm.attention import Attention, AttentionMetadata
 from vllm.compilation.decorators import support_torch_compile
 from vllm.config import CacheConfig, ModelConfig, VllmConfig
@@ -155,18 +156,23 @@ class DeepseekV2MoE(nn.Module):
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         num_tokens, hidden_dim = hidden_states.shape
         hidden_states = hidden_states.view(-1, hidden_dim)
-        if self.n_shared_experts is not None:
-            shared_output = self.shared_experts(hidden_states)
+        with cpu_cuda_timer("🎯 [debug] SharedExperts Compute"):
+            if self.n_shared_experts is not None:
+                shared_output = self.shared_experts(hidden_states)
+
         # router_logits: (num_tokens, n_experts)
-        router_logits, _ = self.gate(hidden_states)
-        final_hidden_states = self.experts(
-            hidden_states=hidden_states,
-            router_logits=router_logits) * self.routed_scaling_factor
-        if shared_output is not None:
-            final_hidden_states = final_hidden_states + shared_output
-        if self.tp_size > 1:
-            final_hidden_states = tensor_model_parallel_all_reduce(
-                final_hidden_states)
+        with cpu_cuda_timer("🎯 [debug] MoE Gate"):
+            router_logits, _ = self.gate(hidden_states)
+
+        with cpu_cuda_timer("🎯 [debug] FusedMoE"):
+            final_hidden_states = self.experts(
+                hidden_states=hidden_states,
+                router_logits=router_logits) * self.routed_scaling_factor
+            if shared_output is not None:
+                final_hidden_states = final_hidden_states + shared_output
+            if self.tp_size > 1:
+                final_hidden_states = tensor_model_parallel_all_reduce(
+                    final_hidden_states)
 
         return final_hidden_states.view(num_tokens, hidden_dim)
 
@@ -505,6 +511,7 @@ class DeepseekV2DecoderLayer(nn.Module):
         # DecoderLayers are created with `make_layers` which passes the prefix
         # with the layer's index.
         layer_idx = int(prefix.split(sep='.')[-1])
+        self.debug_layer_idx = layer_idx # for layer 
         if model_config.use_mla:
             attn_cls = DeepseekV2MLAAttention
         else:
@@ -563,17 +570,21 @@ class DeepseekV2DecoderLayer(nn.Module):
         else:
             hidden_states, residual = self.input_layernorm(
                 hidden_states, residual)
-        hidden_states = self.self_attn(
-            positions=positions,
-            hidden_states=hidden_states,
-            kv_cache=kv_cache,
-            attn_metadata=attn_metadata,
-        )
+
+        with cpu_cuda_timer(f"🎯 [debug] Attention Layer.{self.debug_layer_idx}"):
+            hidden_states = self.self_attn(
+                positions=positions,
+                hidden_states=hidden_states,
+                kv_cache=kv_cache,
+                attn_metadata=attn_metadata,
+            )
 
         # Fully Connected
         hidden_states, residual = self.post_attention_layernorm(
             hidden_states, residual)
-        hidden_states = self.mlp(hidden_states)
+
+        with cpu_cuda_timer(f"🎯 [debug] MLP(Gate + MoE/Dense) Layer.{self.debug_layer_idx}"):
+            hidden_states = self.mlp(hidden_states)
         return hidden_states, residual
 
 

@@ -56,9 +56,8 @@ class ExpertPreloadManager:
             
         next_module = self.modules_dict[next_layer_idx]
         for module in next_module.children():
-            if module.__class__.__name__ == 'DeepSeekV2MoE':
+            if module.__class__.__name__ == 'DeepseekV2MoE':
                 self.load_expert(module)
-        self.load_expert(next_module)
 
     def release_current_layer(self, current_layer_idx: int):
         """异步释放当前层参数回CPU"""
