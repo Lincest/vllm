@@ -23,9 +23,10 @@ from vllm.utils import is_pin_memory_available
 logger = init_logger(__name__)
 
 # FIXME: 目前开启是否卸载专家的开关
-# EXPERT_OFFLOAD = False
+# EXPERT_OFFLOAD = True
 EXPERT_OFFLOAD = False
 expert_preload_manager = None # 全局预取管理器
+PRELOAD_LAYER=8
 
 def get_expert_preload_manager():
     global expert_preload_manager
@@ -491,20 +492,18 @@ from contextlib import contextmanager
 import time
 @contextmanager
 def cpu_cuda_timer(name):
-    start_event = torch.cuda.Event(enable_timing=True)
-    end_event = torch.cuda.Event(enable_timing=True)
-    torch.cuda.synchronize()
-    start_event.record()
+    # start_event = torch.cuda.Event(enable_timing=True)
+    # end_event = torch.cuda.Event(enable_timing=True)
+    # start_event.record()
     start_time = time.time()
     try:
         yield
     finally:
-        end_event.record()
-        torch.cuda.synchronize()
+        # end_event.record()
         end_time = time.time()
         cpu_time = (end_time - start_time) * 1000  # 转换为毫秒
-        npu_time = start_event.elapsed_time(end_event)
-        print(f"{name} - CPU时间: {cpu_time:.2f}ms, GPU时间: {npu_time:.2f}ms")
+        # npu_time = start_event.elapsed_time(end_event)
+        print(f"{name} - CPU时间: {cpu_time:.2f}ms")
 
 # @contextmanager
 # def npu_timer(name):
@@ -575,7 +574,9 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
 
         if EXPERT_OFFLOAD:
             if expert_preload_manager is None:
+                # Init preload manager 
                 expert_preload_manager = ExpertPreloadManager()
+                expert_preload_manager.set_preload_layer(PRELOAD_LAYER)
                 expert_preload_manager.set_start_layer_idx(layer_idx)
 
         # register module to expert preload manager
@@ -617,7 +618,7 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
                 global expert_preload_manager
                 # 获取当前层和下一层的索引
                 current_layer_idx = layer_idx
-                next_layer_idx = layer_idx + 1 if layer_idx is not None else None
+                next_layer_idx = layer_idx + PRELOAD_LAYER if layer_idx is not None else None
 
                 torch.cuda.current_stream().wait_stream(StreamContext.memory_stream)
 
@@ -634,12 +635,12 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
                 if not current_params_on_gpu:
                     print("[debug] 🎯 当前层参数不在 GPU 上，需要先加载")
                     with cpu_cuda_timer(f"layer{current_layer_idx} load_expert"):
-                        expert_preload_manager.prefetch_next_layer(current_layer_idx)
+                        expert_preload_manager.prefetch_layer(current_layer_idx)
                         torch.cuda.current_stream().wait_stream(StreamContext.memory_stream)
 
                 # 预取
                 if next_layer_idx is not None:
-                    expert_preload_manager.prefetch_next_layer(next_layer_idx)
+                    expert_preload_manager.prefetch_layer(next_layer_idx)
 
                 module.forward = original_forward
                 with cpu_cuda_timer(f"layer{current_layer_idx} forward 计算时间"):
@@ -703,7 +704,8 @@ def make_layers(
     if EXPERT_OFFLOAD:
         if expert_preload_manager is not None:
             if expert_preload_manager.last_layer_idx is None:
-                expert_preload_manager.set_last_layer_idx(end_layer) # 说明所有专家层都被卸载了
+                print(f"[debug] 🎯 expert_preload_manager end_layer not set, set to: {end_layer - 1}")
+                expert_preload_manager.set_last_layer_idx(end_layer - 1) # 说明所有专家层都被卸载了
 
             logger.info(f"🎯 Expert preload manager: start_layer = {expert_preload_manager.start_layer_idx}, end_layer = {expert_preload_manager.last_layer_idx}, module = {expert_preload_manager.modules_dict.keys()}")
 

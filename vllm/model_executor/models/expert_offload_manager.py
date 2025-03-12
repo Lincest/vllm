@@ -25,40 +25,66 @@ class StreamContext:
 # 添加预取管理器
 class ExpertPreloadManager:
     def __init__(self):
-        self.next_layer_idx = None
-        self.current_layer_idx = None
         self.modules_dict = {}  # 存储层索引到模块的映射
         self.device = None
         self.start_layer_idx = None # 第一个有 CPU 专家的层 id
         self.last_layer_idx = None # 最后一个有 CPU 专家的层 id
+        self.preload_layer = 1 # 需要预取的层数
+        self.load_events = None
         StreamContext.init()
 
+    def set_preload_layer(self, preload_layer: int):
+        """
+        设置预取的层数
+        """
+        print(f"[debug] 🎯 set preload layer = {preload_layer}")
+        self.preload_layer = preload_layer
+
     def set_start_layer_idx(self, last_layer_idx: int):
+        """
+        设置 offload 开始的层
+        """
         self.start_layer_idx = last_layer_idx
 
     def set_last_layer_idx(self, last_layer_idx: int):
+        """
+        设置 offload 结束的层
+        """
         self.last_layer_idx = last_layer_idx
+        self.load_events = {
+            k:torch.cuda.Event() for k in self.modules_dict.keys() # layer_idx: Event
+        }
+
+    def load_guard(self, layer_idx: int):
+        """
+        等待 layer_idx 的参数加载完毕
+        """
+        self.load_events[layer_idx].synchronize()
+
 
     def register_module(self, layer_idx: int, module: torch.nn.Module, device: torch.device):
         """注册模块以便后续预取"""
         self.modules_dict[layer_idx] = module
         self.device = device
 
-    def prefetch_next_layer(self, next_layer_idx: int):
-        """异步预取下一层参数"""
-        if next_layer_idx == self.last_layer_idx:
-            next_layer_idx = self.start_layer_idx
+    def prefetch_layer(self, layer_idx: int):
+        """异步预取接下来 layer 的参数"""
+        if layer_idx > self.last_layer_idx:
+            layer_idx = self.start_layer_idx + (layer_idx - self.last_layer_idx - 1)
 
-        self.next_layer_idx = next_layer_idx
+        print(f"[debug] 🎯 预取 layer = {layer_idx}")
 
-        if self.next_layer_idx not in self.modules_dict:
+        if layer_idx not in self.modules_dict:
             return
-            
-        next_module = self.modules_dict[next_layer_idx]
+        
+        next_module = self.modules_dict[layer_idx]
         for module in next_module.children():
             if module.__class__.__name__ == 'DeepseekV2MoE':
                 self.load_expert(module)
 
+        self.load_events[layer_idx] = torch.cuda.Event()
+        self.load_events[layer_idx].record(StreamContext.memory_stream)
+            
     def release_current_layer(self, current_layer_idx: int):
         """异步释放当前层参数回CPU"""
         if current_layer_idx not in self.modules_dict:

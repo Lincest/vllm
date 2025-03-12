@@ -165,6 +165,13 @@ class DeepseekV2MoE(nn.Module):
             router_logits, _ = self.gate(hidden_states)
 
         with cpu_cuda_timer("🎯 [debug] FusedMoE"):
+            # FIXME: debug 插入一个耗时操作
+            for i in range(2):
+                # about 35ms per matmul
+                matrix_a = torch.randn(1, 6000, 6000, device='cuda')
+                matrix_b = torch.randn(1, 6000, 6000, device='cuda')
+                torch.matmul(matrix_a, matrix_b)            
+
             final_hidden_states = self.experts(
                 hidden_states=hidden_states,
                 router_logits=router_logits) * self.routed_scaling_factor
