@@ -472,6 +472,9 @@ class _AsyncLLMEngine(LLMEngine):
             *,
             inputs: Optional[PromptType] = None,  # DEPRECATED
     ) -> None:
+
+        logger.info(f"💨 [debug] async_llm_engine: processing request ID: {request_id}, prompt[:100] = {prompt[:100]}")
+
         """Async version of :meth:`add_request`."""
         if inputs is not None:
             prompt = inputs

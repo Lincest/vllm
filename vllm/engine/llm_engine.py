@@ -1427,6 +1427,10 @@ class LLMEngine:
                 # to each of the non-last PP stages for in-place prepare_input.
                 last_sampled_token_ids=last_sampled_token_ids)
 
+            # logger.info(f"🎯 [debug] {seq_group_metadata_list=}")
+            logger.info(f"🎯 [batch] seq_groups: {len(seq_group_metadata_list)}, "
+            f"token_chunk_size: {seq_group_metadata_list[0].token_chunk_size if seq_group_metadata_list else 0}")
+
             if allow_async_output_proc:
                 execute_model_req.async_callback = self.async_callbacks[
                     virtual_engine]
@@ -1434,6 +1438,13 @@ class LLMEngine:
             try:
                 outputs = self.model_executor.execute_model(
                     execute_model_req=execute_model_req)
+                # logger.info(f"🎯 [debug] llm_engine.py, execute_model {outputs=}")
+                num_sequences = 0
+                if outputs and hasattr(outputs[0], 'outputs'):
+                    num_sequences = len(outputs[0].outputs)
+                logger.info(f"🎯 [batch] executed: {num_sequences} sequences")
+                        
+    
                 self._skip_scheduling_next_step = False
             except InputProcessingError as e:
                 # The input for this request cannot be processed, so we must

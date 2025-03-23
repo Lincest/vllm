@@ -503,7 +503,7 @@ def cpu_cuda_timer(name):
         end_time = time.time()
         cpu_time = (end_time - start_time) * 1000  # 转换为毫秒
         # npu_time = start_event.elapsed_time(end_event)
-        print(f"{name} - CPU时间: {cpu_time:.2f}ms")
+        # print(f"{name} - CPU时间: {cpu_time:.2f}ms")
 
 # @contextmanager
 # def npu_timer(name):
@@ -657,7 +657,7 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
                     k: v.to(device, non_blocking=True)
                     for k, v in module.state_dict().items()
                 }
-                print(f"[debug offload] 🎯 forwarding layer {layer_idx}...")
+                # print(f"[debug offload] 🎯 forwarding layer {layer_idx}...")
                 output = functional_call(module,
                                         device_state,
                                         args=args,
