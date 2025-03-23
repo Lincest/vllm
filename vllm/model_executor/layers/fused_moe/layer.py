@@ -127,6 +127,8 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
         e_score_correction_bias: Optional[torch.Tensor] = None,
         activation: str = "silu",
     ) -> torch.Tensor:
+        # logger.info("🎯 UnquantizedFusedMoEMethod is forwarding")
+        # 🎯 Mixtral.py (unquantized here)
         return self.forward(x=x,
                             layer=layer,
                             router_logits=router_logits,
@@ -159,6 +161,7 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
         e_score_correction_bias: Optional[torch.Tensor] = None,
         activation: str = "silu",
     ) -> torch.Tensor:
+        # Mixtral 🎯 topk_weights.shape / topk_ids.shape = [<tokens>, 2] (mixtral 8x7B 是 top2 router)
         topk_weights, topk_ids = FusedMoE.select_experts(
             hidden_states=x,
             router_logits=router_logits,
@@ -170,6 +173,18 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
             custom_routing_function=custom_routing_function,
             scoring_func=scoring_func,
             e_score_correction_bias=e_score_correction_bias)
+        # FIXME: 当使用 cuda capture 时需要注释
+        # logger.info(f"\n\n===================== 🎯 forward_cuda: ==================")
+        # logger.info(f"🎯 topk_ids 形状: {topk_ids.shape}, topk_weights 形状: {topk_weights.shape}")
+        # 打印样本数据（前几个token的路由选择）
+        # num_samples = min(5, topk_ids.size(0))  # 最多打印5个样本
+        # for i in range(num_samples):
+        #     experts = topk_ids[i].cpu().tolist()
+        #     weights = topk_weights[i].cpu().tolist()
+        #     # 将专家ID和权重配对显示
+        #     expert_weight_pairs = [f"🎯 专家{e}({w:.4f})" for e, w in zip(experts, weights)]
+        #     logger.info(f"🎯 Token {i}: {', '.join(expert_weight_pairs)}")
+        # logger.info(f"===================== 🎯 forward_cuda: ==================")
 
         return fused_experts(hidden_states=x,
                              w1=layer.w13_weight,
@@ -419,6 +434,7 @@ class FusedMoE(torch.nn.Module):
                 UnquantizedFusedMoEMethod())
         else:
             self.quant_method = quant_config.get_quant_method(self, prefix)
+            # logger.info(f"🎯 self.quant_method = ", self.quant_method)
         assert self.quant_method is not None
 
         moe_quant_params = {
@@ -541,7 +557,7 @@ class FusedMoE(torch.nn.Module):
 
     def _load_g_idx(self, shard_id: str, expert_data: torch.Tensor,
                     shard_dim: int, loaded_weight: torch.Tensor, tp_rank: int):
-
+        print(f"[debug] 🎯 load w1, w2, w3, {expert_data.device=}, {loaded_weight.device=}")
         if shard_id == "w2":
             self._load_w2(shard_dim=shard_dim,
                           loaded_weight=loaded_weight,

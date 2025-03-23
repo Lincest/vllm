@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import gc
 import vllm.envs as envs
 from vllm.attention import AttentionType
 from vllm.attention.selector import backend_name_to_enum, get_attn_backend

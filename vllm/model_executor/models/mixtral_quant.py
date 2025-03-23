@@ -30,6 +30,7 @@ import torch.nn.functional as F
 from torch import nn
 from transformers import MixtralConfig
 
+from vllm.model_executor.models.utils import cpu_cuda_timer
 from vllm.attention import Attention
 from vllm.config import CacheConfig, VllmConfig
 from vllm.distributed import (get_pp_group, get_tensor_model_parallel_rank,
@@ -135,7 +136,8 @@ class MixtralMoE(nn.Module):
         num_tokens, hidden_dim = hidden_states.shape
         hidden_states = hidden_states.view(-1, hidden_dim)
         # router_logits: (num_tokens, n_experts)
-        router_logits, _ = self.gate(hidden_states)
+        with cpu_cuda_timer("[debug] 🎯 Router 时间"):
+            router_logits, _ = self.gate(hidden_states)
 
         routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
         routing_weights, selected_experts = torch.topk(routing_weights,
@@ -143,19 +145,20 @@ class MixtralMoE(nn.Module):
                                                        dim=-1)
         routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
 
-        final_hidden_states = None
-        for expert_idx in self.expert_indicies:
-            expert_layer = self.experts[expert_idx]
-            expert_mask = (selected_experts == expert_idx)
-            expert_weights = (routing_weights * expert_mask).sum(dim=-1,
-                                                                 keepdim=True)
+        with cpu_cuda_timer("[debug] 🎯 Expert 计算时间"):
+            final_hidden_states = None
+            for expert_idx in self.expert_indicies:
+                expert_layer = self.experts[expert_idx]
+                expert_mask = (selected_experts == expert_idx)
+                expert_weights = (routing_weights * expert_mask).sum(dim=-1,
+                                                                    keepdim=True)
 
-            current_hidden_states = expert_layer(hidden_states).mul_(
-                expert_weights)
-            if final_hidden_states is None:
-                final_hidden_states = current_hidden_states
-            else:
-                final_hidden_states.add_(current_hidden_states)
+                current_hidden_states = expert_layer(hidden_states).mul_(
+                    expert_weights)
+                if final_hidden_states is None:
+                    final_hidden_states = current_hidden_states
+                else:
+                    final_hidden_states.add_(current_hidden_states)
 
         return tensor_model_parallel_all_reduce(final_hidden_states).view(
             num_tokens, hidden_dim)
@@ -285,15 +288,19 @@ class MixtralDecoderLayer(nn.Module):
         else:
             hidden_states, residual = self.input_layernorm(
                 hidden_states, residual)
-        hidden_states = self.self_attn(
-            positions=positions,
-            hidden_states=hidden_states,
-        )
 
-        # Fully Connected
+        with cpu_cuda_timer("[debug] 🎯 Attention 时间"):
+            hidden_states = self.self_attn(
+                positions=positions,
+                hidden_states=hidden_states,
+            )
+
+        # Fully Connected (这个时间很短忽略不计)
         hidden_states, residual = self.post_attention_layernorm(
             hidden_states, residual)
-        hidden_states = self.block_sparse_moe(hidden_states)
+
+        with cpu_cuda_timer("[debug] 🎯 MoE 时间"):
+            hidden_states = self.block_sparse_moe(hidden_states)
         return hidden_states, residual
 
 
@@ -408,6 +415,7 @@ class MixtralForCausalLM(nn.Module, SupportsPP):
 
     def load_weights(self, weights: Iterable[Tuple[str,
                                                    torch.Tensor]]) -> Set[str]:
+        print(f"[debug] 🎯 mixtral_quant.py -> load_weights...")
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
             ("qkv_proj", "q_proj", "q"),

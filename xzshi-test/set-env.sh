@@ -1,0 +1,4 @@
+# source set-env.sh
+
+export VLLM_USE_TRITON_FLASH_ATTN=0 
+export VLLM_ATTENTION_BACKEND="TORCH_SDPA"

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # ruff: noqa: SIM117
+import gc
 import collections
 import copy
 import dataclasses
@@ -58,7 +59,6 @@ from vllm.platforms import current_platform
 from vllm.transformers_utils.s3_utils import glob as s3_glob
 from vllm.transformers_utils.utils import is_s3
 from vllm.utils import is_pin_memory_available
-
 
 @contextmanager
 def device_loading_context(module: torch.nn.Module,
@@ -415,12 +415,25 @@ class DefaultModelLoader(BaseModelLoader):
                               allow_patterns_overrides=None)
 
     def load_model(self, vllm_config: VllmConfig) -> nn.Module:
+
         device_config = vllm_config.device_config
         model_config = vllm_config.model_config
         target_device = torch.device(device_config.device)
+
+        logger.info(f"ℹ️ load model, device = {target_device}")
         with set_default_torch_dtype(model_config.dtype):
+            if torch.cuda.is_available():
+                memory_allocated = torch.cuda.memory_allocated() / 1024**2
+                memory_reserved = torch.cuda.memory_reserved() / 1024**2
+                logger.info(f"🎯 [debug] 模型加载前，GPU内存使用: 已分配={memory_allocated:.2f}MB, 已预留={memory_reserved:.2f}MB")
+
             with target_device:
-                model = _initialize_model(vllm_config=vllm_config)
+                model = _initialize_model(vllm_config=vllm_config) # 这里把模型完整的放在 GPU 上了
+
+            if torch.cuda.is_available():
+                memory_allocated = torch.cuda.memory_allocated() / 1024**2
+                memory_reserved = torch.cuda.memory_reserved() / 1024**2
+                logger.info(f"🎯 [debug] _initialize 加载后，GPU内存使用: 已分配={memory_allocated:.2f}MB, 已预留={memory_reserved:.2f}MB")
 
             weights_to_load = {name for name, _ in model.named_parameters()}
             loaded_weights = model.load_weights(
@@ -439,6 +452,29 @@ class DefaultModelLoader(BaseModelLoader):
                         "Following weights were not initialized from "
                         f"checkpoint: {weights_not_loaded}")
 
+            for module_name, module in model.named_modules():
+                quant_method = getattr(module, "quant_method", None)
+                if isinstance(quant_method, QuantizeMethodBase):
+                    # When quant methods need to process weights after loading
+                    # (for repacking, quantizing, etc), they expect parameters
+                    # to be on the global target device. This scope is for the
+                    # case where cpu offloading is used, where we will move the
+                    # parameters onto device for processing and back off after.
+                    with device_loading_context(module, target_device):
+                        quant_method.process_weights_after_loading(module)
+                if isinstance(module, Attention) and \
+                    hasattr(module, "process_weights_after_loading"):
+                    # When attention modules need to process weights after
+                    # currently only used by MLA
+                    # TODO(lucas): see if there is a way to unify the signatures
+                    # of process_weights_after_loading
+                    module.process_weights_after_loading(model_config.dtype)
+
+
+            if torch.cuda.is_available():
+                memory_allocated = torch.cuda.memory_allocated() / 1024**2
+                memory_reserved = torch.cuda.memory_reserved() / 1024**2
+                logger.info(f"🎯 [debug] 模型参数加载后，GPU内存使用: 已分配={memory_allocated:.2f}MB, 已预留={memory_reserved:.2f}MB")
             _process_weights_after_loading(model, model_config, target_device)
 
         return model.eval()
