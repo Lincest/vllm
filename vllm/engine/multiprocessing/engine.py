@@ -308,7 +308,7 @@ class MQLLMEngine:
 
             if self.log_requests:
                 logger.info("Added request %s.", request.request_id)
-                logger.info(f"💨 [debug] engine.py: processing request ID: {request_id}, prompt.length = {len(request.prompt.prompt_token_ids)}, priority = {request.priority}")
+                logger.info(f"💨 [debug] engine.py: processing request ID: {request_id}, priority = {request.priority}")
 
         except Exception as e:
             # We do not set self._errored = True here, since the error

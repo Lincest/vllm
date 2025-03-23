@@ -1023,7 +1023,10 @@ class Scheduler:
             # Put the sequence back into the waiting queue
             waiting_queue.appendleft(seq_group)
 
+        # debug for unsorted waiting queue and sorted waiting queue
+        logger.info(f"🎯 [debug] waiting queue unsorted = {[(i.request_id, i.priority) for i in waiting_queue]}")
         waiting_queue = deque(sorted(waiting_queue, key=self._get_priority))
+        logger.info(f"🎯 [debug] waiting queue after sorting = {[(i.request_id, i.priority) for i in waiting_queue]}")
 
         self.waiting = waiting_queue
         self.running = running_queue

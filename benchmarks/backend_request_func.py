@@ -8,6 +8,7 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Optional, Union
 
+import random
 import aiohttp
 import huggingface_hub.constants
 from tqdm.asyncio import tqdm
@@ -252,7 +253,10 @@ async def async_request_openai_completions(
             "stream_options": {
                 "include_usage": True,
             },
+            # FIXME: 添加随机的 priority
+            "priority": random.randint(0, 100)
         }
+        print(f"🎯 [debug] openai -> sending request {payload['prompt']=}, {payload['priority']=}")
         if request_func_input.ignore_eos:
             payload["ignore_eos"] = request_func_input.ignore_eos
         if request_func_input.extra_body:
