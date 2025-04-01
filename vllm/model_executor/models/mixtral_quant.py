@@ -145,6 +145,10 @@ class MixtralMoE(nn.Module):
                                                        dim=-1)
         routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
 
+        # FIXME: 统计每一层专家激活
+        unique_experts = torch.unique(selected_experts).numel()
+        print(f"[debug] 🎯 Expert 数量: {unique_experts}")
+
         with cpu_cuda_timer("[debug] 🎯 Expert 计算时间"):
             final_hidden_states = None
             for expert_idx in self.expert_indicies:

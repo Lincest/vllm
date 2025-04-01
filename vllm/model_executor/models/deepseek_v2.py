@@ -522,23 +522,24 @@ class DeepseekV2DecoderLayer(nn.Module):
             attn_cls = DeepseekV2MLAAttention
         else:
             attn_cls = DeepseekV2Attention
-        self.self_attn = attn_cls(
-            config=config,
-            hidden_size=self.hidden_size,
-            num_heads=config.num_attention_heads,
-            qk_nope_head_dim=config.qk_nope_head_dim,
-            qk_rope_head_dim=config.qk_rope_head_dim,
-            v_head_dim=config.v_head_dim,
-            q_lora_rank=config.q_lora_rank
-            if hasattr(config, "q_lora_rank") else None,
-            kv_lora_rank=config.kv_lora_rank,
-            rope_theta=rope_theta,
-            rope_scaling=rope_scaling,
-            max_position_embeddings=max_position_embeddings,
-            cache_config=cache_config,
-            quant_config=quant_config,
-            prefix=f"{prefix}.self_attn",
-        )
+        self.self_attn = None
+        # self.self_attn = attn_cls(
+        #     config=config,
+        #     hidden_size=self.hidden_size,
+        #     num_heads=config.num_attention_heads,
+        #     qk_nope_head_dim=config.qk_nope_head_dim,
+        #     qk_rope_head_dim=config.qk_rope_head_dim,
+        #     v_head_dim=config.v_head_dim,
+        #     q_lora_rank=config.q_lora_rank
+        #     if hasattr(config, "q_lora_rank") else None,
+        #     kv_lora_rank=config.kv_lora_rank,
+        #     rope_theta=rope_theta,
+        #     rope_scaling=rope_scaling,
+        #     max_position_embeddings=max_position_embeddings,
+        #     cache_config=cache_config,
+        #     quant_config=quant_config,
+        #     prefix=f"{prefix}.self_attn",
+        # )
 
         if (config.n_routed_experts is not None
                 and layer_idx >= config.first_k_dense_replace
@@ -576,11 +577,11 @@ class DeepseekV2DecoderLayer(nn.Module):
             hidden_states, residual = self.input_layernorm(
                 hidden_states, residual)
 
-        with cpu_cuda_timer(f"🎯 [debug] Attention Layer.{self.debug_layer_idx}"):
-            hidden_states = self.self_attn(
-                positions=positions,
-                hidden_states=hidden_states,
-            )
+        # with cpu_cuda_timer(f"🎯 [debug] Attention Layer.{self.debug_layer_idx}"):
+        #     hidden_states = self.self_attn(
+        #         positions=positions,
+        #         hidden_states=hidden_states,
+        #     )
 
         # Fully Connected
         if isinstance(self.mlp, DeepseekV2MoE) and \
@@ -793,6 +794,7 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP):
                 try:
                     param = params_dict[name]
                 except KeyError:
+                    print("param load key error, name = ", name)
                     break
                 weight_loader = param.weight_loader
                 weight_loader(param, loaded_weight, shard_id)
@@ -810,6 +812,7 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP):
                     try:
                         param = params_dict[name]
                     except KeyError:
+                        print("param load key error, name = ", name)
                         break
                     weight_loader = param.weight_loader
                     weight_loader(param,
@@ -834,6 +837,7 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP):
                     try:
                         param = params_dict[name]
                     except KeyError:
+                        print("param load key error, name = ", name)
                         continue
                     weight_loader = getattr(param, "weight_loader",
                                             default_weight_loader)
