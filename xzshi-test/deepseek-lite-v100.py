@@ -44,7 +44,7 @@ llm = LLM(
     gpu_memory_utilization=0.8,
     enforce_eager=True,
     trust_remote_code=True,
-    dtype="float16"
+    dtype="float32"
 )
 # Generate texts from the prompts. The output is a list of RequestOutput objects
 # that contain the prompt, generated text, and other information.

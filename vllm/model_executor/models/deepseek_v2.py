@@ -794,7 +794,7 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP):
                 try:
                     param = params_dict[name]
                 except KeyError:
-                    print("param load key error, name = ", name)
+                    # print("param load key error, name = ", name)
                     break
                 weight_loader = param.weight_loader
                 weight_loader(param, loaded_weight, shard_id)
@@ -812,7 +812,7 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP):
                     try:
                         param = params_dict[name]
                     except KeyError:
-                        print("param load key error, name = ", name)
+                        # print("param load key error, name = ", name)
                         break
                     weight_loader = param.weight_loader
                     weight_loader(param,
@@ -837,7 +837,7 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP):
                     try:
                         param = params_dict[name]
                     except KeyError:
-                        print("param load key error, name = ", name)
+                        # print("param load key error, name = ", name)
                         continue
                     weight_loader = getattr(param, "weight_loader",
                                             default_weight_loader)
