@@ -52,6 +52,7 @@ from vllm.model_executor.model_loader.weight_utils import (
     default_weight_loader, maybe_remap_kv_scale_name)
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import IntermediateTensors
+from vllm.model_executor.models.expert_offload_manager import DeepSeekModuleManager
 
 from vllm.model_executor.models.interfaces import SupportsPP
 from vllm.model_executor.models.utils import (PPMissingLayer, is_pp_missing_parameter,
@@ -107,6 +108,10 @@ class DeepseekV2MoE(nn.Module):
         self.routed_scaling_factor = config.routed_scaling_factor
         self.n_shared_experts = config.n_shared_experts
 
+        # 初始化 Manager 
+        self.prefix = prefix
+        self.manager = DeepSeekModuleManager()
+
         if config.hidden_act != "silu":
             raise ValueError(f"Unsupported activation: {config.hidden_act}. "
                              "Only silu is supported for now.")
@@ -133,7 +138,7 @@ class DeepseekV2MoE(nn.Module):
             use_grouped_topk=True,
             num_expert_group=config.n_group,
             topk_group=config.topk_group,
-            prefix=f"{prefix}.experts",
+            prefix=f"{prefix}.experts", # prefix e.g.: model.layers.3.mlp.experts
             scoring_func=config.scoring_func,
             e_score_correction_bias=self.gate.e_score_correction_bias)
 
@@ -161,13 +166,6 @@ class DeepseekV2MoE(nn.Module):
             router_logits, _ = self.gate(hidden_states)
 
         with cpu_cuda_timer("🎯 [debug] FusedMoE"):
-            # FIXME: debug 插入一个耗时操作
-            for i in range(2):
-                # about 35ms per matmul
-                matrix_a = torch.randn(1, 6000, 6000, device='cuda')
-                matrix_b = torch.randn(1, 6000, 6000, device='cuda')
-                torch.matmul(matrix_a, matrix_b)            
-
             if hidden_states.dtype != torch.float16:
                 final_hidden_states = self.experts(
                         hidden_states=hidden_states,
@@ -634,7 +632,9 @@ class DeepseekV2Model(nn.Module):
                 cache_config=cache_config,
                 quant_config=quant_config,
             ),
-            prefix=f"{prefix}.layers")
+            prefix=f"{prefix}.layers",
+            is_deepseek_model=True
+        )
 
         if get_pp_group().is_last_rank:
             self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)

@@ -14,30 +14,30 @@ print(f"VLLM_ATTENTION_BACKEND: {os.getenv('VLLM_ATTENTION_BACKEND')}, VLLM_USE_
 
 
 # Sample prompts.
-# prompts = [
-#     "Hello, my name is",
-#     "The president of the United States is",
-#     "The capital of France is",
-#     "The future of AI is",
-#     "The model name is",
-#     "The largest ocean in the world is",
-#     "The formula for water is",
-#     "The speed of light is approximately",
-#     "The author of 'War and Peace' is",
-#     "The currency of Japan is",
-#     "The tallest mountain on Earth is",
-#     "The number of planets in our solar system is",
-#     "The chemical symbol for gold is",
-#     "The inventor of the telephone was",
-#     "The most populated country in the world is",
-#     "The year World War II ended was"
-# ]
 prompts = [
     "Hello, my name is",
     "The president of the United States is",
+    "The capital of France is",
+    "The future of AI is",
+    "The model name is",
+    "The largest ocean in the world is",
+    "The formula for water is",
+    "The speed of light is approximately",
+    "The author of 'War and Peace' is",
+    "The currency of Japan is",
+    "The tallest mountain on Earth is",
+    "The number of planets in our solar system is",
+    "The chemical symbol for gold is",
+    "The inventor of the telephone was",
+    "The most populated country in the world is",
+    "The year World War II ended was"
 ]
+# prompts = [
+#     "Hello, my name is",
+#     "The president of the United States is",
+# ]
 # Create a sampling params object.
-sampling_params = SamplingParams(temperature=0.8, top_p=0.95, max_tokens=4)
+sampling_params = SamplingParams(temperature=0.8, top_p=0.95, max_tokens=4,seed=410)
 
 # https://huggingface.co/deepseek-ai/DeepSeek-V2-Lite-Chat/tree/main
 # 大小：31.41 GB
@@ -45,10 +45,10 @@ llm = LLM(
     model="/home/sugon/xzshi/vllm/models/deepseek-v2-lite",
     cpu_offload_gb=20,
     max_model_len=512,
-    gpu_memory_utilization=0.8,
+    gpu_memory_utilization=0.5, # DS_EXPERT_OFFLOAD: 0.5, 如果没有就 0.8
     enforce_eager=True,
-    trust_remote_code=True,dtype="float16"
-    )
+    trust_remote_code=True,dtype="float32"
+)
 
 
 import torch.profiler as profiler

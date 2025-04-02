@@ -21,6 +21,7 @@ from vllm.model_executor.utils import set_weight_attrs
 from vllm.platforms import current_platform
 from vllm.platforms.interface import CpuArchEnum
 from vllm.utils import direct_register_custom_op
+from vllm.model_executor.models.expert_offload_manager import DeepSeekModuleManager
 
 if current_platform.is_cuda_alike():
     from .fused_moe import fused_experts
@@ -72,7 +73,6 @@ class FusedMoEMethodBase(QuantizeMethodBase):
 @CustomOp.register("unquantized_fused_moe")
 class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
     """MoE method without quantization."""
-
     def create_weights(self, layer: torch.nn.Module, num_experts: int,
                        hidden_size: int, intermediate_size_per_partition: int,
                        params_dtype: torch.dtype, **extra_weight_attrs):
@@ -98,6 +98,11 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
         super().process_weights_after_loading(layer)
+
+        if layer.prefix is not None:
+            # layer.prefix e.g. : model.layers.3.mlp.experts
+            print(f"🎯 [debug] UnquantizedFusedMoEMethod process_weights_after_loading! layer = {layer.prefix}")
+            DeepSeekModuleManager().split_w13_w2_weight(layer.prefix)
 
         if current_platform.is_cpu():
             if current_platform.get_cpu_architecture() == CpuArchEnum.X86:
@@ -185,16 +190,32 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
         #     expert_weight_pairs = [f"🎯 专家{e}({w:.4f})" for e, w in zip(experts, weights)]
         #     logger.info(f"🎯 Token {i}: {', '.join(expert_weight_pairs)}")
         # logger.info(f"===================== 🎯 forward_cuda: ==================")
+        # if layer.prefix is not None:
+        #     print(f"[debug]= {topk_weights=}, {topk_ids=}, prefix={layer.prefix}")
 
-        return fused_experts(hidden_states=x,
-                             w1=layer.w13_weight,
-                             w2=layer.w2_weight,
-                             topk_weights=topk_weights,
-                             topk_ids=topk_ids,
-                             inplace=True,
-                             activation=activation,
-                             global_num_experts=global_num_experts,
-                             expert_map=expert_map)
+        manager = DeepSeekModuleManager()
+        if layer.w13_weight is None:
+            w13_weight, w2_weight = manager.get_experts_with_topk_ids(layer.prefix, topk_ids)
+            output = fused_experts(hidden_states=x,
+                                w1=w13_weight,
+                                w2=w2_weight,
+                                topk_weights=topk_weights,
+                                topk_ids=topk_ids,
+                                inplace=True,
+                                activation=activation,
+                                global_num_experts=global_num_experts,
+                                expert_map=expert_map)
+            return output
+        else:
+            return fused_experts(hidden_states=x,
+                                w1=layer.w13_weight,
+                                w2=layer.w2_weight,
+                                topk_weights=topk_weights,
+                                topk_ids=topk_ids,
+                                inplace=True,
+                                activation=activation,
+                                global_num_experts=global_num_experts,
+                                expert_map=expert_map)
 
     def forward_cpu(
         self,
@@ -450,7 +471,14 @@ class FusedMoE(torch.nn.Module):
                 in ("GPTQMarlinMoEMethod", "CompressedTensorsWNA16MoEMethod")):
             moe_quant_params["intermediate_size_full"] = intermediate_size
 
-        self.quant_method.create_weights(layer=self, **moe_quant_params)
+        self.quant_method.create_weights(layer=self, **moe_quant_params) # 创建 w13_weight 和 w2_weight, 并且注册到 layer 中
+
+        # register FusedMoE Module to DeepSeekModuleManager
+        # prefix: model.layers.3.mlp.experts
+        # print(f"[debug] init FusedMoE, prefix = {prefix}")
+        self.manager = DeepSeekModuleManager()
+        self.prefix = prefix
+        self.manager.register_moe_module(prefix, self)
 
     def _load_per_tensor_weight_scale(self, shard_id: str,
                                       param: torch.nn.Parameter,
@@ -768,6 +796,7 @@ class FusedMoE(torch.nn.Module):
 
     def forward(self, hidden_states: torch.Tensor,
                 router_logits: torch.Tensor):
+        # print(f"[debug] FusedMoE Forward, manager active modules = {len(self.manager.get_all_moe_modules())}, prefix = {self.prefix}")
         if self.use_direct_call:
             return self.forward_impl(hidden_states, router_logits)
         else:

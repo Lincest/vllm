@@ -601,6 +601,7 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
                                        device='cpu',
                                        pin_memory=pin_memory)
         # print(f"[debug] 🎯 {p.device=}, {cpu_data.device=}")
+        print(f"[debug] 🎯 offload {layer_idx}: {name}")
         cpu_data.copy_(p.data)
         p.data = cpu_data
 
@@ -672,10 +673,58 @@ def maybe_offload_to_cpu(module: torch.nn.Module, layer_idx: Optional[int] = Non
 
     return module
 
+def offload_all_experts(module: torch.nn.Module, layer_idx: Optional[int] = None):
+    """
+    卸载 deepseek 所有的专家 (w13_weight, w2_weight) 到 cpu
+    需要结合 DeepSeekModuleManager 使用 !
+    """
+    is_expert_offload_enabled = os.getenv("DS_EXPERT_OFFLOAD", "1") == "1" # 默认启用
+    if not is_expert_offload_enabled:
+        print("🎯 [debug] 未开启专家卸载功能，开启方式: export DS_EXPERT_OFFLOAD=1")
+        return module
+    pin_memory = is_pin_memory_available()
+    for name, p in module.named_parameters():
+        # 只 offload expert 
+        """
+        DeepSeek: 
+
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 2.mlp.gate.weight -> gpu:0
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 2.mlp.experts.w13_weight -> cpu
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 2.mlp.experts.w2_weight -> cpu
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 2.mlp.shared_experts.gate_up_proj.weight -> gpu:0
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 2.mlp.shared_experts.down_proj.weight -> gpu:0
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 2.input_layernorm.weight -> gpu:0
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 2.post_attention_layernorm.weight -> gpu:0
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 3.mlp.gate.weight -> gpu:0
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 3.mlp.experts.w13_weight -> cpu
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 3.mlp.experts.w2_weight -> cpu
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 3.mlp.shared_experts.gate_up_proj.weight -> gpu:0
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 3.mlp.shared_experts.down_proj.weight -> gpu:0
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 3.input_layernorm.weight -> gpu:0
+        INFO 04-02 10:24:55 [utils.py:751] 🎯 3.post_attention_layernorm.weight -> gpu:0
+        """
+        if "w13_weight" not in name and "w2_weight" not in name:
+            continue
+        # `torch.empty_like` does not support `pin_memory` argument
+        cpu_data = torch.empty_strided(size=p.data.size(),
+                                       stride=p.data.stride(),
+                                       dtype=p.data.dtype,
+                                       layout=p.data.layout,
+                                       device='cpu',
+                                       pin_memory=pin_memory)
+        # print(f"[debug] 🎯 {p.device=}, {cpu_data.device=}")
+        print(f"[debug] 🎯 offload {layer_idx}: {name}")
+        cpu_data.copy_(p.data)
+        p.data = cpu_data
+
+    return module
+
+
 def make_layers(
     num_hidden_layers: int,
     layer_fn: LayerFn,
     prefix: str,
+    is_deepseek_model: bool=False,
 ) -> Tuple[int, int, torch.nn.ModuleList]:
     """Make a list of layers with the given layer function, taking
     pipeline parallelism into account.
@@ -685,14 +734,29 @@ def make_layers(
     start_layer, end_layer = get_pp_indices(num_hidden_layers,
                                             get_pp_group().rank_in_group,
                                             get_pp_group().world_size)
-    modules = torch.nn.ModuleList(
-        [PPMissingLayer() for _ in range(start_layer)] + [
-            maybe_offload_to_cpu(
-                layer_fn(prefix=f"{prefix}.{idx}"),
-                layer_idx=idx
-                )
-            for idx in range(start_layer, end_layer)
-        ] + [PPMissingLayer() for _ in range(end_layer, num_hidden_layers)])
+
+    # ======================= 原来的 maybe_offload_to_cpu ====================
+    if not is_deepseek_model:
+        modules = torch.nn.ModuleList(
+            [PPMissingLayer() for _ in range(start_layer)] + [
+                maybe_offload_to_cpu(
+                    layer_fn(prefix=f"{prefix}.{idx}"),
+                    layer_idx=idx
+                    )
+                for idx in range(start_layer, end_layer)
+            ] + [PPMissingLayer() for _ in range(end_layer, num_hidden_layers)])
+    # ======================= 原来的 maybe_offload_to_cpu ====================
+    else:
+        # ==================== offload experts ========================
+        modules = torch.nn.ModuleList(
+            [PPMissingLayer() for _ in range(start_layer)] + [
+                offload_all_experts(
+                    layer_fn(prefix=f"{prefix}.{idx}"),
+                    layer_idx=idx
+                    )
+                for idx in range(start_layer, end_layer)
+            ] + [PPMissingLayer() for _ in range(end_layer, num_hidden_layers)])
+        # ==================== offload experts ========================
 
     # 打印所有参数的位置
     logger.info(f"🎯 === Parameters location for layer.{prefix} ===")
