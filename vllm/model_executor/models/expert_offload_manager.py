@@ -193,6 +193,9 @@ class DeepSeekModuleManager:
         # 加载历史统计数据
         self.load_expert_stats()
 
+        # 专家并行 
+        self.expert_map = None # List[int] -> int (global_expert_id: local_expert_id)
+
         # 固定专家
         self.fixed_experts_count = int(os.getenv("DS_FIXED_EXPERTS_COUNT", "5"))  # 每层固定的专家数量
         self.fixed_experts = {}  # 格式: {layer_prefix: set(id1, id2, ..)}
@@ -203,6 +206,28 @@ class DeepSeekModuleManager:
         self.layer_prefixes = []  # 所有层的前缀列表，按照顺序排列
         self.preloaded_params = []  # 预加载的参数列表，格式与loaded_params相同
 
+    def register_expert_map(self, expert_map):
+        """
+        用于处理专家并行 (EP)
+
+        - expert_map (Optional[torch.Tensor]): A tensor of shape
+            (global_num_experts,) mapping from global to local index.
+            Contains -1 for experts not assigned to the current rank.
+            Returns None if ep_size is 1.
+        """
+        # expert parallel shard, the value is -1.
+        if expert_map is None:
+            logger.warning("Expert map is None, skipping registration expert_map for EP.")
+            return 
+        self.expert_map = expert_map.cpu().tolist()
+
+    def get_local_expert_id(self, global_expert_id: int) -> int:
+        """
+        global_expert_id -> local_expert_id
+        """
+        if self.expert_map is None:
+            return global_expert_id
+        return self.expert_map[global_expert_id]
 
     def load_expert_stats(self):
         """
@@ -317,14 +342,14 @@ class DeepSeekModuleManager:
             logger.error(f"Module with prefix {layer_prefix} has been garbage collected")
             return None, None
         
-        # 所有的唯一专家ID
-        unique_ids = torch.unique(topk_ids)
-        self.update_expert_stats(layer_prefix, unique_ids) # 更新专家激活统计
+        # 所有的 global 唯一专家ID
+        global_unique_ids = torch.unique(topk_ids)
+        self.update_expert_stats(layer_prefix, global_unique_ids) # 更新专家激活统计
         # 该层的固定专家
         fixed_experts = self.fixed_experts.get(layer_prefix, set())
         # 计算命中率
-        hit_rate = len(set(unique_ids.tolist()) & fixed_experts) / max(len(unique_ids), 1) * 100 if unique_ids.numel() > 0 else 0.0
-        print(f"[debug] Loading experts {unique_ids.tolist()} for {layer_prefix}, 固定专家集合: {fixed_experts}, 🎯命中率: {hit_rate}%")
+        hit_rate = len(set(global_unique_ids.tolist()) & fixed_experts) / max(len(global_unique_ids), 1) * 100 if global_unique_ids.numel() > 0 else 0.0
+        print(f"[debug] Loading experts {global_unique_ids.tolist()} for {layer_prefix}, 固定专家集合: {fixed_experts}, 🎯命中率: {hit_rate}%")
 
         # 确保self.w13_weight和self.w2_weight已初始化
         if self.w13_weight is None or self.w2_weight is None:
@@ -346,30 +371,32 @@ class DeepSeekModuleManager:
         with torch.cuda.stream(stream):
             # 将参数复制到合并的权重中的对应位置
             # 使用非阻塞方式将选定的专家参数加载到GPU (on_demand)
-            for expert_id in unique_ids:
-                expert_id_int = expert_id.item()  # 转换为Python整数
-                if expert_id_int not in layer_experts:
-                    logger.error(f"Expert {expert_id_int} not found in {layer_prefix}")
+            for expert_id in global_unique_ids:
+                global_expert_id_int = expert_id.item()  # 转换为Python整数
+                local_expert_id_int = self.get_local_expert_id(global_expert_id_int) # 获取本地专家ID
+
+                if local_expert_id_int not in layer_experts:
+                    logger.error(f"Expert {local_expert_id_int} not found in {layer_prefix}")
                     continue
                 
                 # 加载专家参数到GPU
-                w13_param = self.load_param(layer_experts[expert_id_int]["w13"])
-                w2_param = self.load_param(layer_experts[expert_id_int]["w2"])
+                w13_param = self.load_param(layer_experts[local_expert_id_int]["w13"])
+                w2_param = self.load_param(layer_experts[local_expert_id_int]["w2"])
 
-                # 记录，方便等下卸载
-                if expert_id_int not in fixed_experts: # 只卸载非固定专家
+                # 只卸载非固定专家, 专家的固定是全局的
+                if global_expert_id_int not in fixed_experts: 
                     self.loaded_params.append((w13_param, w2_param))
                 
                 with torch.cuda.stream(stream):
-                    self.w13_weight[expert_id_int].copy_(w13_param.data, non_blocking=True)
-                    self.w2_weight[expert_id_int].copy_(w2_param.data, non_blocking=True)
+                    self.w13_weight[local_expert_id_int].copy_(w13_param.data, non_blocking=True)
+                    self.w2_weight[local_expert_id_int].copy_(w2_param.data, non_blocking=True)
 
         stream.synchronize()
 
         # 卸载当前层专家(已经复制到了 w13 和 w2 不会影响计算) 
         self.offload_experts()
         
-        print(f"[debug] Loaded {len(unique_ids)} experts to GPU for {layer_prefix}")
+        print(f"[debug] Loaded {len(global_unique_ids)} experts to GPU for {layer_prefix}")
 
         # 预取下一层专家
         self.preload_next_layer_experts(layer_prefix)
@@ -441,7 +468,7 @@ class DeepSeekModuleManager:
         if module.w13_weight.device.type == "cpu" and module.w2_weight.device.type == "cpu":
             print(f"[debug] Splitting weights for {layer_prefix} on CPU")
             
-            # 获取专家数量
+            # 获取专家数量 (local expert num)
             num_experts = module.w13_weight.size(0)
 
             # 在manager中为该层创建专家参数字典
@@ -517,8 +544,8 @@ class DeepSeekModuleManager:
         )
         
         # 取前N个专家进行预取
-        preload_expert_ids = [expert_id for expert_id, _ in sorted_experts[:self.preload_experts_count]]
-        print(f"[debug] Preloading top {len(preload_expert_ids)} experts for next layer {next_layer_prefix}: {preload_expert_ids}")
+        preload_global_expert_ids = [expert_id for expert_id, _ in sorted_experts[:self.preload_experts_count]]
+        print(f"[debug] Preloading top {len(preload_global_expert_ids)} experts for next layer {next_layer_prefix}: {preload_global_expert_ids}")
         
         # 检查下一层的专家参数是否存在
         if next_layer_prefix not in self.expert_params:
@@ -529,17 +556,18 @@ class DeepSeekModuleManager:
         next_layer_experts = self.expert_params[next_layer_prefix]
         fixed_experts = self.fixed_experts.get(next_layer_prefix, set())
         with torch.cuda.stream(StreamContext.memory_stream):
-            for expert_id in preload_expert_ids:
-                if expert_id not in next_layer_experts:
-                    print(f"[warning] Expert {expert_id} not found in {next_layer_prefix}")
+            for global_expert_id in preload_global_expert_ids:
+                local_expert_id = self.get_local_expert_id(global_expert_id)
+                if local_expert_id not in next_layer_experts:
+                    print(f"[warning] Expert {local_expert_id} not found in {next_layer_prefix}")
                     continue
                 
                 # 预加载专家参数到GPU
-                w13_param = self.load_param(next_layer_experts[expert_id]["w13"])
-                w2_param = self.load_param(next_layer_experts[expert_id]["w2"])
+                w13_param = self.load_param(next_layer_experts[local_expert_id]["w13"])
+                w2_param = self.load_param(next_layer_experts[local_expert_id]["w2"])
                 
                 # 记录预加载的参数
-                if expert_id not in fixed_experts:
+                if global_expert_id not in fixed_experts:
                     self.preloaded_params.append((w13_param, w2_param))
         
         print(f"[debug] Preloaded {len(self.preloaded_params)} experts for next layer {next_layer_prefix}")

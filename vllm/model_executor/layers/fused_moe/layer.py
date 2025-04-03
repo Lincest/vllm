@@ -195,6 +195,7 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
 
         manager = DeepSeekModuleManager()
         if layer.w13_weight is None:
+            print(f"[debug] 📍 {expert_map=}")
             w13_weight, w2_weight = manager.get_experts_with_topk_ids(layer.prefix, topk_ids)
             output = fused_experts(hidden_states=x,
                                 w1=w13_weight,
@@ -479,6 +480,7 @@ class FusedMoE(torch.nn.Module):
         self.manager = DeepSeekModuleManager()
         self.prefix = prefix
         self.manager.register_moe_module(prefix, self)
+        self.manager.register_expert_map(self.expert_map)
 
     def _load_per_tensor_weight_scale(self, shard_id: str,
                                       param: torch.nn.Parameter,
