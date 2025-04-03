@@ -1,12 +1,10 @@
-import queue
 import torch
-import threading
 from vllm.logger import init_logger
 from typing import (Dict)
-from vllm.utils import is_pin_memory_available
 import weakref
 import json
 import os
+import gc
 
 logger = init_logger(__name__)
 
@@ -14,12 +12,14 @@ class StreamContext:
     memory_stream: torch.cuda.Stream = None
     offload_stream: torch.cuda.Stream = None
     compute_stream: torch.cuda.Stream = None
+    preload_stream: torch.cuda.Stream = None
     initialized = False
 
     @classmethod
     def init(cls):
         if not cls.initialized:
             cls.memory_stream = torch.cuda.Stream(priority=0)
+            cls.preload_stream = torch.cuda.Stream(priority=0)
             cls.offload_stream = torch.cuda.Stream(priority=0)
             cls.compute_stream = torch.cuda.current_stream()
             cls.initialized = True
@@ -197,12 +197,12 @@ class DeepSeekModuleManager:
         self.expert_map = None # List[int] -> int (global_expert_id: local_expert_id)
 
         # 固定专家
-        self.fixed_experts_count = int(os.getenv("DS_FIXED_EXPERTS_COUNT", "5"))  # 每层固定的专家数量
+        self.fixed_experts_count = int(os.getenv("DS_FIXED_EXPERTS_COUNT", "10"))  # 每层固定的专家数量
         self.fixed_experts = {}  # 格式: {layer_prefix: set(id1, id2, ..)}
         self.initialize_fixed_experts()
 
         # 预加载相关设置
-        self.preload_experts_count = int(os.getenv("DS_PRELOAD_EXPERTS_COUNT", "25"))  # 预加载的专家数量
+        self.preload_experts_count = int(os.getenv("DS_PRELOAD_EXPERTS_COUNT", "30"))  # 预加载的专家数量
         self.layer_prefixes = []  # 所有层的前缀列表，按照顺序排列
         self.preloaded_params = []  # 预加载的参数列表，格式与loaded_params相同
 
@@ -367,7 +367,7 @@ class DeepSeekModuleManager:
         stream = StreamContext.memory_stream
 
         # synchronize for preload
-        stream.synchronize()
+        StreamContext.preload_stream.synchronize()
         with torch.cuda.stream(stream):
             # 将参数复制到合并的权重中的对应位置
             # 使用非阻塞方式将选定的专家参数加载到GPU (on_demand)
@@ -391,9 +391,9 @@ class DeepSeekModuleManager:
                     self.w13_weight[local_expert_id_int].copy_(w13_param.data, non_blocking=True)
                     self.w2_weight[local_expert_id_int].copy_(w2_param.data, non_blocking=True)
 
+        # 卸载当前层专家(已经复制到了 w13 和 w2 不会影响计算) 
         stream.synchronize()
 
-        # 卸载当前层专家(已经复制到了 w13 和 w2 不会影响计算) 
         self.offload_experts()
         
         print(f"[debug] Loaded {len(global_unique_ids)} experts to GPU for {layer_prefix}")
@@ -413,6 +413,8 @@ class DeepSeekModuleManager:
         """
         if not self.loaded_params:
             return
+
+        print(f"[debug] offload {len(self.loaded_params)} experts")
             
         # 单个CUDA流上下文，减少上下文切换
         with torch.no_grad():
@@ -427,6 +429,26 @@ class DeepSeekModuleManager:
         
         # 清空已加载的参数列表
         self.loaded_params.clear()
+
+    def offload_preloaded_experts(self):
+        """
+        卸载预加载的专家参数
+        """
+        if not self.preloaded_params:
+            return
+            
+        print(f"[debug] offload preloaded {len(self.preloaded_params)} experts")
+        with torch.no_grad():
+            with torch.cuda.stream(StreamContext.offload_stream):
+                for w13_param, w2_param in self.preloaded_params:
+                    # 内联 offload_param 逻辑
+                    if w13_param is not None and hasattr(w13_param, 'pin_cpu_data'):
+                        w13_param.data = w13_param.pin_cpu_data
+                    
+                    if w2_param is not None and hasattr(w2_param, 'pin_cpu_data'):
+                        w2_param.data = w2_param.pin_cpu_data
+        
+        self.preloaded_params.clear()
         
     def register_moe_module(self, layer_prefix, module):
         """注册一个MoE模块到管理器"""
@@ -495,6 +517,7 @@ class DeepSeekModuleManager:
             # 触发垃圾回收
             import gc
             gc.collect()
+            torch.cuda.empty_cache()
             print(f"[debug] Released original weights for {layer_prefix}")
         else:
             # 如果权重不在CPU上，只记录一下但不执行拆分
@@ -555,7 +578,7 @@ class DeepSeekModuleManager:
         # 预取专家参数
         next_layer_experts = self.expert_params[next_layer_prefix]
         fixed_experts = self.fixed_experts.get(next_layer_prefix, set())
-        with torch.cuda.stream(StreamContext.memory_stream):
+        with torch.cuda.stream(StreamContext.preload_stream):
             for global_expert_id in preload_global_expert_ids:
                 local_expert_id = self.get_local_expert_id(global_expert_id)
                 if local_expert_id not in next_layer_experts:
@@ -565,35 +588,19 @@ class DeepSeekModuleManager:
                 # 预加载专家参数到GPU
                 w13_param = self.load_param(next_layer_experts[local_expert_id]["w13"])
                 w2_param = self.load_param(next_layer_experts[local_expert_id]["w2"])
-                
+
                 # 记录预加载的参数
                 if global_expert_id not in fixed_experts:
                     self.preloaded_params.append((w13_param, w2_param))
         
         print(f"[debug] Preloaded {len(self.preloaded_params)} experts for next layer {next_layer_prefix}")
 
-    def offload_preloaded_experts(self):
-        """
-        卸载预加载的专家参数
-        """
-        if not self.preloaded_params:
-            return
-            
-        with torch.no_grad():
-            with torch.cuda.stream(StreamContext.offload_stream):
-                for w13_param, w2_param in self.preloaded_params:
-                    # 内联 offload_param 逻辑
-                    if w13_param is not None and hasattr(w13_param, 'pin_cpu_data'):
-                        w13_param.data = w13_param.pin_cpu_data
-                    
-                    if w2_param is not None and hasattr(w2_param, 'pin_cpu_data'):
-                        w2_param.data = w2_param.pin_cpu_data
-        
-        self.preloaded_params.clear()
-
     def load_param(self, param):
         if param is None:
             return None
+
+        if param.device.type == 'cuda':  # 这个很重要，防止一个参数被 load 两次导致 pin_cpu_data 指向一个 gpu 上的数据
+            return param
             
         param_applied = param.cuda(non_blocking=True)
         
