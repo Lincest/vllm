@@ -416,11 +416,10 @@ class DeepSeekModuleManager:
 
         print(f"[debug] offload {len(self.loaded_params)} experts")
             
-        # 单个CUDA流上下文，减少上下文切换
+        # offload params
         with torch.no_grad():
             with torch.cuda.stream(StreamContext.offload_stream):
                 for w13_param, w2_param in self.loaded_params:
-                    # 内联 offload_param 逻辑
                     if w13_param is not None and hasattr(w13_param, 'pin_cpu_data'):
                         w13_param.data = w13_param.pin_cpu_data
                     
