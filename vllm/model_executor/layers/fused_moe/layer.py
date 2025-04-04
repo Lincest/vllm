@@ -5,6 +5,7 @@ from enum import Enum
 from typing import Callable, List, Optional, Tuple
 
 import torch
+import os
 from torch.nn.parameter import UninitializedParameter
 
 from vllm import envs
@@ -98,7 +99,6 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
         super().process_weights_after_loading(layer)
-
         if layer.prefix is not None:
             # layer.prefix e.g. : model.layers.3.mlp.experts
             print(f"🎯 [debug] UnquantizedFusedMoEMethod process_weights_after_loading! layer = {layer.prefix}")
@@ -194,7 +194,7 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
         #     print(f"[debug]= {topk_weights=}, {topk_ids=}, prefix={layer.prefix}")
 
         manager = DeepSeekModuleManager()
-        if layer.w13_weight is None:
+        if layer.w13_weight is None and manager.is_expert_offload_enabled:
             print(f"[debug] 📍 {expert_map=}")
             w13_weight, w2_weight = manager.get_experts_with_topk_ids(layer.prefix, topk_ids)
             output = fused_experts(hidden_states=x,

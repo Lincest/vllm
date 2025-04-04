@@ -3,6 +3,9 @@ from vllm.logger import init_logger
 from typing import (Dict)
 import weakref
 import json
+import queue
+import threading
+import time
 import os
 import gc
 
@@ -18,141 +21,144 @@ class StreamContext:
     @classmethod
     def init(cls):
         if not cls.initialized:
-            cls.memory_stream = torch.cuda.Stream(priority=0)
+            cls.memory_stream = torch.cuda.Stream(priority=-1)
             cls.preload_stream = torch.cuda.Stream(priority=0)
             cls.offload_stream = torch.cuda.Stream(priority=0)
             cls.compute_stream = torch.cuda.current_stream()
             cls.initialized = True
 
-
-# 添加预取管理器
-class ExpertPreloadManager:
-    def __init__(self):
-        self.modules_dict = {}  # 存储层索引到模块的映射
-        self.device = None
-        self.start_layer_idx = None # 第一个有 CPU 专家的层 id
-        self.last_layer_idx = None # 最后一个有 CPU 专家的层 id
-        self.preload_layer = 1 # 需要预取的层数
-        self.load_events = None
-        StreamContext.init()
-
-    def set_preload_layer(self, preload_layer: int):
+class PreloadDaemon:
+    def __init__(self, manager):
         """
-        设置预取的层数
-        """
-        print(f"[debug] 🎯 set preload layer = {preload_layer}")
-        self.preload_layer = preload_layer
-
-    def set_start_layer_idx(self, last_layer_idx: int):
-        """
-        设置 offload 开始的层
-        """
-        self.start_layer_idx = last_layer_idx
-
-    def set_last_layer_idx(self, last_layer_idx: int):
-        """
-        设置 offload 结束的层
-        """
-        self.last_layer_idx = last_layer_idx
-        self.load_events = {
-            k:torch.cuda.Event() for k in self.modules_dict.keys() # layer_idx: Event
-        }
-
-    def load_guard(self, layer_idx: int):
-        """
-        等待 layer_idx 的参数加载完毕
-        """
-        self.load_events[layer_idx].synchronize()
-
-
-    def register_module(self, layer_idx: int, module: torch.nn.Module, device: torch.device):
-        """注册模块以便后续预取"""
-        self.modules_dict[layer_idx] = module
-        self.device = device
-
-    def prefetch_layer(self, layer_idx: int):
-        """异步预取接下来 layer 的参数"""
-        if layer_idx > self.last_layer_idx:
-            layer_idx = self.start_layer_idx + (layer_idx - self.last_layer_idx - 1)
-
-        print(f"[debug] 🎯 预取 layer = {layer_idx}")
-
-        if layer_idx not in self.modules_dict:
-            return
+        初始化预加载守护线程
         
-        next_module = self.modules_dict[layer_idx]
-        for module in next_module.children():
-            if module.__class__.__name__ == 'DeepseekV2MoE':
-                self.load_expert(module)
+        Args:
+            manager: DeepSeekModuleManager实例的引用
+        """
+        self.manager = manager
+        self.preload_queue = []  # 简单列表代替优先级队列
+        self.next_layer_prefix = None  # 下一个要处理的层
+        self.shutdown_flag = threading.Event()  # 用于停止线程的标志
+        self.lock = threading.Lock()  # 单一锁保护所有状态
+        
+        # 启动守护线程
+        self.daemon_thread = threading.Thread(target=self._preload_worker, daemon=True)
+        self.daemon_thread.start()
+    
+    def schedule_preload(self, layer_prefix: str):
+        """安排一个层的专家预加载任务"""
+        with self.lock:
+            # offload 之前的预加载 
+            self.manager.offload_preloaded_experts()
 
-        self.load_events[layer_idx] = torch.cuda.Event()
-        self.load_events[layer_idx].record(StreamContext.memory_stream)
+            # 清空现有队列(放弃之前的预加载)
+            self.preload_queue = []
+            self.next_layer_prefix = layer_prefix
             
-    def release_current_layer(self, current_layer_idx: int):
-        """异步释放当前层参数回CPU"""
-        if current_layer_idx not in self.modules_dict:
-            return
+            # 如果该层存在统计数据，添加专家到预加载队列
+            if layer_prefix in self.manager.expert_stats:
+                sorted_experts = sorted(
+                    self.manager.expert_stats[layer_prefix].items(), 
+                    key=lambda x: x[1], 
+                    reverse=True
+                )
+                
+                # 提取需要预加载的专家ID
+                preload_expert_ids = [expert_id for expert_id, _ in sorted_experts[:self.manager.preload_experts_count]]
+                fixed_experts = self.manager.fixed_experts.get(layer_prefix, set())
+                
+                # 过滤掉固定专家
+                preload_expert_ids = [eid for eid in preload_expert_ids if eid not in fixed_experts]
+                
+                # 直接添加到队列
+                self.preload_queue = preload_expert_ids
+                
+                print(f"[debug] 已安排 {layer_prefix} 的预加载，共 {len(preload_expert_ids)} 个专家")
+    
+    def notify_layer_loading(self, layer_prefix: str):
+        """通知daemon线程当前层的加载开始了，应停止预加载"""
+        with self.lock:
+            # 简单地清空队列即可
+            if layer_prefix == self.next_layer_prefix:
+                origin_len = len(self.preload_queue)
+                self.preload_queue = []
+                print(f"[debug] 清空预加载队列, 剩余未加载的专家个数: {origin_len}，因为层 {layer_prefix} 的加载已开始")
+    
+    def shutdown(self):
+        """关闭守护线程"""
+        self.shutdown_flag.set()
+        if self.daemon_thread.is_alive():
+            self.daemon_thread.join(timeout=1.0)  # 等待线程结束，最多1秒
+    
+    def _preload_worker(self):
+        """预加载工作线程的主循环"""
+        while not self.shutdown_flag.is_set():
+            # 获取当前要处理的专家和层
+            expert_id = None
+            layer_prefix = None
             
-        current_module = self.modules_dict[current_layer_idx]
-        self.offload(current_module)
+            with self.lock:
+                if self.preload_queue and self.next_layer_prefix:
+                    expert_id = self.preload_queue.pop(0)  # 取出并移除第一个元素
+                    layer_prefix = self.next_layer_prefix
             
-    def load_expert(self, m): 
-        stream = StreamContext.memory_stream
-        for module in m.children():
-            self.load_expert(module)
-
-        for key, param in m._parameters.items():
-            if param is None:
-                continue  
-
-            # Tensors stored in modules are graph leaves, and we don't want to
-            # track autograd history of `param_applied`, so we have to use
-            # `with torch.no_grad():`
-            with torch.no_grad():
-                with torch.cuda.stream(stream):
-                    param_applied = param.cuda(non_blocking=True)
-            param.pin_cpu_data = param.data
-            param.data = param_applied
-            out_param = param
-
-            if param.grad is not None:
-                with torch.no_grad():
-                    with torch.cuda.stream(stream):
-                        grad_applied = param.grad.cuda(non_blocking=True)
-
-                out_param.grad.pin_cpu_data = param.grad.data
-                out_param.grad.data = grad_applied
-
-        return m
-
-    def offload(self, m, copy=False):
-        for module in m.children():
-            self.offload(module, copy)
-
-        for key, param in m._parameters.items():
-            if param is None:
-                continue
-            if not hasattr(param, 'pin_cpu_data'):
-                continue
-            # Tensors stored in modules are graph leaves, and we don't want to
-            # track autograd history of `param_applied`, so we have to use
-            # `with torch.no_grad():`
-            with torch.no_grad():
-                with torch.cuda.stream(StreamContext.offload_stream):
-                    param_applied = param.pin_cpu_data
-                    if copy:
-                        param_applied.copy_(param.data, non_blocking=True)
-                    param.data = param_applied
-            out_param = param
-
-            if param.grad is not None:
-                with torch.no_grad():
-                    with torch.cuda.stream(StreamContext.offload_stream):
-                        grad_applied = param.grad.pin_cpu_data
-                        if copy:
-                            grad_applied.copy_(param.grad.data, non_blocking=True)
-                        out_param.grad.data = grad_applied
-        return m
+            # 如果有任务，执行预加载
+            if expert_id is not None and layer_prefix is not None:
+                success = self._load_expert(layer_prefix, expert_id)
+                if not success:
+                    # 预加载失败，可能整个队列都应该清空
+                    with self.lock:
+                        if layer_prefix == self.next_layer_prefix:
+                            self.preload_queue = []
+            else:
+                # 没有任务，休眠一小段时间
+                time.sleep(0.01)
+    
+    def _load_expert(self, layer_prefix: str, expert_id: int):
+        """
+        预加载单个专家
+        
+        Args:
+            layer_prefix: 层前缀
+            expert_id: 专家ID
+            
+        Returns:
+            bool: 是否成功预加载
+        """
+        try:
+            # 检查队列是否已清空
+            with self.lock:
+                if layer_prefix != self.next_layer_prefix or not self.preload_queue:
+                    print(f"[debug] 取消预加载专家 {expert_id}，因为队列已清空或层前缀已变更")
+                    return False
+            
+            # 检查专家是否存在
+            layer_experts = self.manager.expert_params.get(layer_prefix, {})
+            local_expert_id = self.manager.get_local_expert_id(expert_id)
+            
+            if local_expert_id not in layer_experts:
+                print(f"[warning] 专家 {local_expert_id} 在 {layer_prefix} 中不存在")
+                return False
+            
+            # 获取专家参数
+            w13_param = layer_experts[local_expert_id]["w13"]
+            w2_param = layer_experts[local_expert_id]["w2"]
+            
+            # 使用预加载流加载参数
+            with torch.cuda.stream(StreamContext.preload_stream):
+                loaded_w13 = self.manager.load_param(w13_param)
+                loaded_w2 = self.manager.load_param(w2_param)
+            StreamContext.preload_stream.synchronize()
+            
+            # 记录预加载的参数
+            self.manager.preloaded_params.append((loaded_w13, loaded_w2))
+            
+            print(f"[debug] 成功预加载专家 {layer_prefix} {expert_id} - (local id: {local_expert_id}) ")
+            return True
+            
+        except Exception as e:
+            print(f"[error] 预加载专家 {expert_id} 从层 {layer_prefix} 失败: {e}")
+            return False
 
 class DeepSeekModuleManager:
     """
@@ -162,6 +168,7 @@ class DeepSeekModuleManager:
         - DS_EXPERT_TRACE: 设置为"1"开启专家激活追踪，用于收集和保存专家激活统计信息
         - DS_FIXED_EXPERTS_COUNT: 每层固定加载的专家数量，这些专家将始终保留在GPU中
         - DS_PRELOAD_EXPERTS_COUNT: 预加载下一层的专家数量
+        - DS_USE_DAEMON: 是否使用守护线程进行预加载
     """
     _instance = None
     
@@ -184,6 +191,9 @@ class DeepSeekModuleManager:
         # 当前加载到 gpu 的参数
         self.loaded_params = [] # [(w13, w2)]
 
+        # 是否开启了 expert offload
+        self.is_expert_offload_enabled = os.getenv("DS_EXPERT_OFFLOAD", "1") == "1" # 默认启用
+
         # 专家激活统计
         self.expert_stats = {}  # 格式: {layer_prefix: {expert_id: count}}
         self.stats_file = os.path.join(os.getenv("DS_EXPERT_STATS_PATH", os.path.dirname(os.path.abspath(__file__))), "expert_activation_stats.json")
@@ -197,14 +207,19 @@ class DeepSeekModuleManager:
         self.expert_map = None # List[int] -> int (global_expert_id: local_expert_id)
 
         # 固定专家
-        self.fixed_experts_count = int(os.getenv("DS_FIXED_EXPERTS_COUNT", "10"))  # 每层固定的专家数量
+        self.fixed_experts_count = int(os.getenv("DS_FIXED_EXPERTS_COUNT", "0"))  # 每层固定的专家数量
         self.fixed_experts = {}  # 格式: {layer_prefix: set(id1, id2, ..)}
         self.initialize_fixed_experts()
 
         # 预加载相关设置
-        self.preload_experts_count = int(os.getenv("DS_PRELOAD_EXPERTS_COUNT", "30"))  # 预加载的专家数量
+        self.preload_experts_count = int(os.getenv("DS_PRELOAD_EXPERTS_COUNT", "50"))  # 预加载的专家数量
         self.layer_prefixes = []  # 所有层的前缀列表，按照顺序排列
         self.preloaded_params = []  # 预加载的参数列表，格式与loaded_params相同
+
+        # preload daemon
+        self.use_daemon = os.getenv("DS_USE_DAEMON", "1") == "1"  # 是否使用守护线程进行预加载
+        if self.use_daemon: 
+            self.preload_daemon = PreloadDaemon(self)
 
     def register_expert_map(self, expert_map):
         """
@@ -332,6 +347,7 @@ class DeepSeekModuleManager:
         """
         assert self.loaded_params == [], "Loaded params should be empty before loading new ones, should invoke offload_experts() after each FusedMoE forward"
 
+
         module_ref = self.moe_modules.get(layer_prefix)
         if module_ref is None:
             logger.error(f"Module with prefix {layer_prefix} not found")
@@ -367,7 +383,11 @@ class DeepSeekModuleManager:
         stream = StreamContext.memory_stream
 
         # synchronize for preload
-        StreamContext.preload_stream.synchronize()
+        if self.use_daemon:
+            self.preload_daemon.notify_layer_loading(layer_prefix)
+        else:
+            StreamContext.preload_stream.synchronize()
+
         with torch.cuda.stream(stream):
             # 将参数复制到合并的权重中的对应位置
             # 使用非阻塞方式将选定的专家参数加载到GPU (on_demand)
@@ -399,7 +419,28 @@ class DeepSeekModuleManager:
         print(f"[debug] Loaded {len(global_unique_ids)} experts to GPU for {layer_prefix}")
 
         # 预取下一层专家
-        self.preload_next_layer_experts(layer_prefix)
+        if self.use_daemon:
+            # 获取下一层的前缀
+            next_layer_idx = -1
+            if not self.layer_prefixes:
+                self.layer_prefixes = sorted(self.moe_modules.keys())
+            
+            try:
+                current_idx = self.layer_prefixes.index(layer_prefix)
+                if current_idx >= len(self.layer_prefixes) - 1:
+                    next_layer_idx = 0  # 循环回到第一层
+                else:
+                    next_layer_idx = current_idx + 1
+                    
+                next_layer_prefix = self.layer_prefixes[next_layer_idx]
+                # 安排下一层的预加载
+                self.preload_daemon.schedule_preload(next_layer_prefix)
+                
+            except ValueError:
+                print(f"[warning] 当前层 {layer_prefix} 未在层前缀列表中找到")
+        else:
+            self.preload_next_layer_experts(layer_prefix)
+
 
         if self.is_tracing:
             self.save_expert_stats()
@@ -469,6 +510,10 @@ class DeepSeekModuleManager:
         Args:
             layer_prefix (str): 模块的前缀，例如 'model.layers.3.mlp.experts'
         """
+        if not self.is_expert_offload_enabled:
+            print("🎯 [debug] 未开启专家卸载功能，开启方式: export DS_EXPERT_OFFLOAD=1")
+            return 
+
         module_ref = self.moe_modules.get(layer_prefix)
         if module_ref is None:
             logger.error(f"Module with prefix {layer_prefix} not found")
@@ -607,3 +652,8 @@ class DeepSeekModuleManager:
         param.data = param_applied
         
         return param
+
+    def __del__(self):
+        """析构函数，确保守护线程正确关闭"""
+        if hasattr(self, 'preload_daemon'):
+            self.preload_daemon.shutdown()
