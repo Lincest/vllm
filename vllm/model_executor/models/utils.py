@@ -605,8 +605,8 @@ def offload_all_experts(module: torch.nn.Module, layer_idx: Optional[int] = None
                                        stride=p.data.stride(),
                                        dtype=p.data.dtype,
                                        layout=p.data.layout,
-                                       device='cpu',
-                                       pin_memory=pin_memory)
+                                       device='cpu') 
+                                       # pin_memory=pin_memory)
         # print(f"[debug] 🎯 {p.device=}, {cpu_data.device=}")
         print(f"[debug] 🎯 offload {layer_idx}: {name}")
         cpu_data.copy_(p.data)

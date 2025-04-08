@@ -7,6 +7,7 @@ import queue
 import threading
 import time
 import os
+import psutil
 import gc
 
 logger = init_logger(__name__)
@@ -106,10 +107,8 @@ class PreloadDaemon:
             if expert_id is not None and layer_prefix is not None:
                 success = self._load_expert(layer_prefix, expert_id)
                 if not success:
-                    # 预加载失败，可能整个队列都应该清空
-                    with self.lock:
-                        if layer_prefix == self.next_layer_prefix:
-                            self.preload_queue = []
+                    # print("[debug] 预加载失败")
+                    continue
             else:
                 # 没有任务，休眠一小段时间
                 time.sleep(0.01)
@@ -153,7 +152,7 @@ class PreloadDaemon:
             # 记录预加载的参数
             self.manager.preloaded_params.append((loaded_w13, loaded_w2))
             
-            print(f"[debug] 成功预加载专家 {layer_prefix} {expert_id} - (local id: {local_expert_id}) ")
+            # print(f"[debug] 成功预加载专家 {layer_prefix} {expert_id} - (local id: {local_expert_id}) ")
             return True
             
         except Exception as e:
@@ -423,7 +422,7 @@ class DeepSeekModuleManager:
             # 获取下一层的前缀
             next_layer_idx = -1
             if not self.layer_prefixes:
-                self.layer_prefixes = sorted(self.moe_modules.keys())
+                self.layer_prefixes = sorted(self.moe_modules.keys(), key=lambda x: [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', x)])
             
             try:
                 current_idx = self.layer_prefixes.index(layer_prefix)
@@ -541,12 +540,26 @@ class DeepSeekModuleManager:
             if layer_prefix not in self.expert_params:
                 self.expert_params[layer_prefix] = {}
             
+            bbefore_mem = f"{psutil.virtual_memory().used / (1024 ** 3):.2f}"
             # 拆分权重并存储到manager中
             for i in range(num_experts):
-                # 创建w13权重的pin memory版本
-                w13_pinned = module.w13_weight[i].clone().pin_memory()
-                # 创建w2权重的pin memory版本
-                w2_pinned = module.w2_weight[i].clone().pin_memory()
+                # # 创建w13权重的pin memory版本
+                # w13_pinned = module.w13_weight[i].clone().pin_memory()
+                # # 创建w2权重的pin memory版本
+                # w2_pinned = module.w2_weight[i].clone().pin_memory()
+                
+                # self.expert_params[layer_prefix][i] = {
+                #     "w13": torch.nn.Parameter(w13_pinned),
+                #     "w2": torch.nn.Parameter(w2_pinned)
+                # }
+
+                # 预分配已经pin_memory的张量
+                w13_pinned = torch.empty_like(module.w13_weight[i], pin_memory=True)
+                w2_pinned = torch.empty_like(module.w2_weight[i], pin_memory=True)
+                
+                # in-place复制
+                w13_pinned.copy_(module.w13_weight[i])
+                w2_pinned.copy_(module.w2_weight[i])
                 
                 self.expert_params[layer_prefix][i] = {
                     "w13": torch.nn.Parameter(w13_pinned),
@@ -555,14 +568,22 @@ class DeepSeekModuleManager:
             
             # 初始化一次 w13_weight / w2_weight 释放原始权重
             self.init_w13_w2_weight(w13_weight=module.w13_weight, w2_weight=module.w2_weight)
+
+            # ++=================== debug =============
+            import gc
+            
+            before_mem = f"{psutil.virtual_memory().used / (1024 ** 3):.2f}"
+            print("[debug] w13_weight.device = ", module.w13_weight.device)
+
             module.w13_weight = None
             module.w2_weight = None
-            
             # 触发垃圾回收
-            import gc
             gc.collect()
+            import ctypes 
+            ctypes.pythonapi.PyGC_Collect()
             torch.cuda.empty_cache()
-            print(f"[debug] Released original weights for {layer_prefix}")
+
+            print(f"[debug] Released original weights for {layer_prefix}, memory: {bbefore_mem}GB -> {before_mem}GB -> {psutil.virtual_memory().used / (1024 ** 3):.2f}GB")
         else:
             # 如果权重不在CPU上，只记录一下但不执行拆分
             print(f"[debug] Weights for {layer_prefix} are not on CPU, skipping split")
@@ -579,7 +600,7 @@ class DeepSeekModuleManager:
         """
         # 首先确保所有层的前缀已排序
         if not self.layer_prefixes:
-            self.layer_prefixes = sorted(self.moe_modules.keys())
+            self.layer_prefixes = sorted(self.moe_modules.keys(), key=lambda x: [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', x)])
         
         # 查找当前层在排序列表中的位置
         try:
